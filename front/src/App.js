@@ -5,6 +5,7 @@ import SystemStatus from './pages/SystemStatus';
 import Pipeline from './pages/Pipeline';
 import ResultQuery from './pages/ResultQuery';
 import ModelManagement from './pages/ModelManagement';
+import Feedback from './pages/Feedback';
 import './App.css';
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
           <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/result-query" element={<ResultQuery />} />
           <Route path="/model-management" element={<ModelManagement />} />
+          <Route path="/feedback" element={<Feedback />} />
         </Routes>
       </Layout>
     </Router>

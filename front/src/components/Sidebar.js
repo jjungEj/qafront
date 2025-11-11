@@ -10,12 +10,13 @@ const Sidebar = () => {
     { path: '/pipeline', label: '파이프라인', icon: '⚙️' },
     { path: '/result-query', label: '결과조회', icon: '🔍' },
     { path: '/model-management', label: '모델 관리', icon: '🤖' },
+    { path: '/feedback', label: '피드백', icon: '💬' },
   ];
 
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-title">Helpy Struct</h1>
+        <h1 className="sidebar-title">QA WebApp</h1>
       </div>
       <nav className="sidebar-nav">
         <ul className="menu-list">

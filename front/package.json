@@ -1,7 +1,7 @@
 {
-  "name": "helpy-struct-frontend",
+  "name": "qa-webapp-frontend",
   "version": "1.0.0",
-  "description": "Helpy Struct QA Application Frontend",
+  "description": "QA WebApp Frontend",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { getSystemStatus } from '../utils/api';
+import Notification, { NotificationContainer } from '../components/Notification';
 import './Page.css';
 
 const SystemStatus = () => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     fetchSystemStatus();
@@ -12,13 +14,22 @@ const SystemStatus = () => {
 
   const fetchSystemStatus = async () => {
     try {
-      const response = await axios.get('/api/system-status');
+      const response = await getSystemStatus();
       setStatus(response.data);
     } catch (error) {
-      console.error('시스템 상태 조회 실패:', error);
+      showNotification('시스템 상태를 불러오는데 실패했습니다.', 'error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const showNotification = (message, type = 'info', duration = 3000) => {
+    const id = Date.now();
+    setNotifications(prev => [...prev, { id, message, type, duration }]);
+  };
+
+  const removeNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   if (loading) {
@@ -27,6 +38,10 @@ const SystemStatus = () => {
 
   return (
     <div className="page-container">
+      <NotificationContainer 
+        notifications={notifications} 
+        removeNotification={removeNotification} 
+      />
       <h1 className="page-title">시스템상태</h1>
       <div className="page-content">
         {status && (
@@ -42,7 +57,9 @@ const SystemStatus = () => {
             </div>
             <div className="status-item">
               <span className="status-label">업타임:</span>
-              <span className="status-value">{new Date(status.uptime).toLocaleString()}</span>
+              <span className="status-value">
+                {status.uptime ? new Date(status.uptime).toLocaleString('ko-KR') : '-'}
+              </span>
             </div>
           </div>
         )}
