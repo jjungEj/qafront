@@ -1,0 +1,136 @@
+.system-status-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.system-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.system-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1000px) {
+  .system-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.system-panel {
+  background-color: #ffffff;
+  border: 1px solid #e1e5eb;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.system-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.system-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.system-panel-subtitle {
+  font-size: 12px;
+  color: #95a5a6;
+}
+
+.system-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.system-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #2c3e50;
+}
+
+.system-detail-row strong {
+  font-weight: 600;
+}
+
+.timeline-body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timeline-entry {
+  border-left: 3px solid #3498db;
+  padding: 8px 12px;
+  background-color: #f9fbfd;
+  border-radius: 6px;
+}
+
+.timeline-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.timeline-date {
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+.timeline-entry-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: #2c3e50;
+}
+
+.timeline-entry-body strong {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.timeline-notes {
+  background-color: rgba(52, 152, 219, 0.1);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: #2c3e50;
+}
+
+.timeline-notes p {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: #34495e;
+}
+
+.text-warning {
+  color: #e67e22;
+}
+
+.text-muted {
+  color: #95a5a6;
+}
+
+.text-danger {
+  color: #c0392b;
+}

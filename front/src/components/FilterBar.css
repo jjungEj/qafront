@@ -1,0 +1,31 @@
+.filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.filter-bar-left,
+.filter-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-bar .form-select,
+.filter-bar .form-input {
+  min-width: 180px;
+}
+
+.filter-bar .date-range-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-bar .date-range-inputs input {
+  min-width: 160px;
+}
