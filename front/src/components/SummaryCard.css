@@ -1,0 +1,74 @@
+.summary-card {
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e1e5eb;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 140px;
+}
+
+.summary-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.summary-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.summary-card-icon {
+  font-size: 20px;
+}
+
+.summary-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-card-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #2c3e50;
+  line-height: 1.2;
+}
+
+.summary-card-description {
+  margin: 0;
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.summary-card-footer {
+  border-top: 1px solid #eef2f6;
+  padding-top: 10px;
+  font-size: 13px;
+  color: #7f8c8d;
+}
+
+.summary-card-skeleton {
+  width: 60%;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f2f4f7 25%, #e5e9f0 50%, #f2f4f7 75%);
+  background-size: 200% 100%;
+  animation: summaryCardShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes summaryCardShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

@@ -62,8 +62,13 @@ api.interceptors.response.use(
   }
 );
 
-// ==================== 시스템 상태 ====================
-export const getSystemStatus = () => api.get('/system-status');
+// ==================== 로컬 파일 (Local Files) ====================
+export const getLocalFiles = (params = {}) => api.get('/local-files', { params });
+export const getLocalFile = (id) => api.get(`/local-files/${id}`);
+export const createLocalFile = (data) => api.post('/local-files', data);
+export const updateLocalFile = (id, data) => api.put(`/local-files/${id}`, data);
+export const deleteLocalFile = (id) => api.delete(`/local-files/${id}`);
+export const getLocalFileSummary = () => api.get('/local-files/summary');
 
 // ==================== 모델 (Models) ====================
 export const getModels = () => api.get('/models');
@@ -73,24 +78,19 @@ export const updateModel = (id, data) => api.put(`/models/${id}`, data);
 export const deleteModel = (id) => api.delete(`/models/${id}`);
 
 // ==================== 파이프라인 (Pipelines) ====================
-export const getPipelines = (modelId = null) => {
-  const params = modelId ? { modelId } : {};
-  return api.get('/pipelines', { params });
-};
+export const getPipelines = (params = {}) => api.get('/pipelines', { params });
 export const getPipeline = (id) => api.get(`/pipelines/${id}`);
 export const createPipeline = (data) => api.post('/pipelines', data);
 export const updatePipeline = (id, data) => api.put(`/pipelines/${id}`, data);
 export const deletePipeline = (id) => api.delete(`/pipelines/${id}`);
 
 // ==================== 결과 (Results) ====================
-export const getResults = (pipelineId = null) => {
-  const params = pipelineId ? { pipelineId } : {};
-  return api.get('/results', { params });
-};
+export const getResults = (params = {}) => api.get('/results', { params });
 export const getResult = (id) => api.get(`/results/${id}`);
 export const createResult = (data) => api.post('/results', data);
 export const updateResult = (id, data) => api.put(`/results/${id}`, data);
 export const deleteResult = (id) => api.delete(`/results/${id}`);
+export const getResultSummary = () => api.get('/results/summary');
 
 // ==================== 피드백 (Feedback) ====================
 export const getFeedbacks = (resultId = null) => {
@@ -101,6 +101,22 @@ export const getFeedback = (id) => api.get(`/feedback/${id}`);
 export const createFeedback = (data) => api.post('/feedback', data);
 export const updateFeedback = (id, data) => api.put(`/feedback/${id}`, data);
 export const deleteFeedback = (id) => api.delete(`/feedback/${id}`);
+
+// ==================== 시스템 상태 ====================
+export const getSystemStatus = () => api.get('/system-status');
+export const getSystemStatusSummary = () => api.get('/system-status/summary');
+export const getSystemStatusTimeline = () => api.get('/system-status/timeline');
+export const createSystemStatusSnapshot = (data) => api.post('/system-status', data);
+
+// ==================== 파이프라인 타임라인 ====================
+export const getPipelineTimeline = () => api.get('/pipelines/timeline');
+
+// ==================== 결과 테이블 편집 ====================
+export const updateResultTable = (id, data) => api.put(`/results/${id}/table`, data);
+
+// ==================== 파일 다운로드 ====================
+export const downloadResultJsonl = (id, params = {}) =>
+  api.get(`/results/${id}/export`, { params, responseType: 'blob' });
 
 export default api;
 
