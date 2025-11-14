@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getResults,
   getResult,
   updateResult,
   deleteResult,
-  updateResultTable,
   getFeedbacks,
   createFeedback,
   updateFeedback,
@@ -40,10 +39,11 @@ const Results = () => {
   const [results, setResults] = useState([]);
   const [selectedResultId, setSelectedResultId] = useState(null);
   const [resultDetail, setResultDetail] = useState(null);
-  const [tableData, setTableData] = useState({ columns: [], rows: [] });
-  const [tableDirty, setTableDirty] = useState(false);
-  const [sourcesView, setSourcesView] = useState('table');
-  const [sourcesData, setSourcesData] = useState({ html: '', json: '' });
+  const [sheets, setSheets] = useState([]);
+  const [selectedSheetId, setSelectedSheetId] = useState(null);
+  const [sheetView, setSheetView] = useState('preview');
+  const [isSheetSaving, setIsSheetSaving] = useState(false);
+  const originalSheetsRef = useRef([]);
   const [feedbacks, setFeedbacks] = useState([]);
   const [filters, setFilters] = useState({
     pipelineId: '',
@@ -106,16 +106,38 @@ const Results = () => {
         fileSize: res.data.fileSize ?? '',
         uri: res.data.uri || '',
       });
-      const table = res.data.table || { columns: [], rows: [] };
-      setTableData({
-        columns: table.columns || [],
-        rows: Array.isArray(table.rows) ? table.rows : [],
+      const incomingSheets = Array.isArray(res.data.sheets) ? res.data.sheets : [];
+      const hydratedSheets = incomingSheets.map((sheet, index) => ({
+        localId: sheet.id ?? sheet.sheetId ?? `${res.data.id ?? 'result'}-sheet-${index}`,
+        sheetName: sheet.sheetName || `시트 ${index + 1}`,
+        sheetOrder: typeof sheet.sheetOrder === 'number' ? sheet.sheetOrder : index,
+        htmlContent: sheet.htmlContent || '',
+        imageBase64: sheet.imageBase64 || '',
+      }));
+      const normalizedSheets = hydratedSheets
+        .sort((a, b) => a.sheetOrder - b.sheetOrder)
+        .map((sheet, index) => ({
+          ...sheet,
+          sheetOrder: index,
+        }));
+      setSheets(normalizedSheets);
+      const defaultSheetId = normalizedSheets[0]?.localId ?? null;
+      setSelectedSheetId((prev) => {
+        if (!prev) {
+          return defaultSheetId;
+        }
+        return normalizedSheets.some((sheet) => sheet.localId === prev) ? prev : defaultSheetId;
       });
-      setSourcesData({
-        html: res.data.sources?.html || '',
-        json: res.data.sources?.json || '',
-      });
-      setTableDirty(false);
+      setSheetView('preview');
+      originalSheetsRef.current = normalizedSheets.map(
+        ({ localId, sheetName, sheetOrder, htmlContent, imageBase64 }) => ({
+          localId,
+          sheetName,
+          sheetOrder,
+          htmlContent,
+          imageBase64,
+        })
+      );
     } catch (error) {
       showNotification('결과 상세를 불러오지 못했습니다.', 'error');
     } finally {
@@ -142,67 +164,262 @@ const Results = () => {
       fetchFeedbackList(selectedResultId);
     } else {
       setResultDetail(null);
-      setTableData({ columns: [], rows: [] });
-      setSourcesData({ html: '', json: '' });
+      setSheets([]);
+      setSelectedSheetId(null);
+      setSheetView('preview');
+      originalSheetsRef.current = [];
       setFeedbacks([]);
     }
   }, [fetchFeedbackList, fetchResultDetail, selectedResultId]);
 
-  const handleRowClick = (result) => {
-    setSelectedResultId(result.id);
-  };
-
-  const handleTableCellChange = (rowIndex, columnKey, value) => {
-    setTableData((prev) => {
-      const newRows = prev.rows.map((row, idx) =>
-        idx === rowIndex ? { ...row, [columnKey]: value } : row
+  const isSheetDirty = useCallback((sheet) => {
+    if (!sheet) return false;
+    const original = originalSheetsRef.current.find((item) => item.localId === sheet.localId);
+    if (!original) {
+      return Boolean(
+        (sheet.sheetName && sheet.sheetName.trim().length > 0) ||
+          sheet.htmlContent ||
+          sheet.imageBase64
       );
-      return { ...prev, rows: newRows };
-    });
-    setTableDirty(true);
+    }
+    return (
+      original.sheetName !== sheet.sheetName ||
+      original.sheetOrder !== sheet.sheetOrder ||
+      (original.htmlContent || '') !== (sheet.htmlContent || '') ||
+      (original.imageBase64 || '') !== (sheet.imageBase64 || '')
+    );
+  }, []);
+
+  const sortedSheets = useMemo(() => {
+    if (!sheets.length) {
+      return [];
+    }
+    return [...sheets].sort((a, b) => a.sheetOrder - b.sheetOrder);
+  }, [sheets]);
+
+  const selectedSheet = useMemo(
+    () => sheets.find((sheet) => sheet.localId === selectedSheetId) || null,
+    [sheets, selectedSheetId]
+  );
+
+  const selectedSheetIndex = useMemo(
+    () => sortedSheets.findIndex((sheet) => sheet.localId === selectedSheetId),
+    [sortedSheets, selectedSheetId]
+  );
+
+  const canMoveUp = selectedSheetIndex > 0;
+  const canMoveDown =
+    selectedSheetIndex !== -1 && selectedSheetIndex < sortedSheets.length - 1;
+
+  const hasDirtySheets = useMemo(
+    () => sheets.some((sheet) => isSheetDirty(sheet)),
+    [sheets, isSheetDirty]
+  );
+
+  const currentSheetDirty = useMemo(
+    () => (selectedSheet ? isSheetDirty(selectedSheet) : false),
+    [selectedSheet, isSheetDirty]
+  );
+
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!hasDirtySheets) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    if (hasDirtySheets) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }
+    return undefined;
+  }, [hasDirtySheets]);
+
+  const confirmDiscardChanges = useCallback(() => {
+    if (!hasDirtySheets) {
+      return true;
+    }
+    return window.confirm('저장되지 않은 시트 변경 사항이 있습니다. 계속하시겠습니까?');
+  }, [hasDirtySheets]);
+
+  const confirmCurrentSheetChange = useCallback(() => {
+    if (!currentSheetDirty) {
+      return true;
+    }
+    return window.confirm('현재 시트에 저장되지 않은 변경 사항이 있습니다. 이동하시겠습니까?');
+  }, [currentSheetDirty]);
+
+  const attemptSelectResult = useCallback(
+    (resultId) => {
+      if (!confirmDiscardChanges()) {
+        return false;
+      }
+      setSelectedResultId(resultId);
+      return true;
+    },
+    [confirmDiscardChanges]
+  );
+
+  const handleRowClick = (result) => {
+    attemptSelectResult(result.id);
   };
 
-  const handleSaveTable = async () => {
+  const handleSelectSheet = useCallback(
+    (sheetId) => {
+      if (!sheetId || sheetId === selectedSheetId) {
+        return;
+      }
+      if (!confirmCurrentSheetChange()) {
+        return;
+      }
+      setSelectedSheetId(sheetId);
+      setSheetView('preview');
+    },
+    [confirmCurrentSheetChange, selectedSheetId]
+  );
+
+  const handleSheetNameChange = (sheetId, value) => {
+    setSheets((prev) =>
+      prev.map((sheet) =>
+        sheet.localId === sheetId ? { ...sheet, sheetName: value } : sheet
+      )
+    );
+  };
+
+  const handleSheetHtmlChange = (sheetId, value) => {
+    setSheets((prev) =>
+      prev.map((sheet) =>
+        sheet.localId === sheetId ? { ...sheet, htmlContent: value } : sheet
+      )
+    );
+  };
+
+  const handleSheetImageUpload = (sheetId, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        return;
+      }
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      setSheets((prev) =>
+        prev.map((sheet) =>
+          sheet.localId === sheetId ? { ...sheet, imageBase64: base64 } : sheet
+        )
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSheetImageRemove = (sheetId) => {
+    setSheets((prev) =>
+      prev.map((sheet) =>
+        sheet.localId === sheetId ? { ...sheet, imageBase64: '' } : sheet
+      )
+    );
+  };
+
+  const reorderSheet = useCallback((sheetId, targetIndex) => {
+    setSheets((prev) => {
+      if (!prev.length) return prev;
+      const sorted = [...prev].sort((a, b) => a.sheetOrder - b.sheetOrder);
+      const currentIndex = sorted.findIndex((sheet) => sheet.localId === sheetId);
+      if (currentIndex === -1) return prev;
+      const clampedIndex = Math.max(0, Math.min(targetIndex, sorted.length - 1));
+      if (clampedIndex === currentIndex) return prev;
+      const [moved] = sorted.splice(currentIndex, 1);
+      sorted.splice(clampedIndex, 0, moved);
+      return sorted.map((sheet, index) => ({ ...sheet, sheetOrder: index }));
+    });
+  }, []);
+
+  const handleSheetMove = useCallback(
+    (sheetId, direction) => {
+      if (!sheetId) return;
+      const currentIndex = sortedSheets.findIndex((sheet) => sheet.localId === sheetId);
+      if (currentIndex === -1) return;
+      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      reorderSheet(sheetId, targetIndex);
+    },
+    [reorderSheet, sortedSheets]
+  );
+
+  const handleSheetOrderInputChange = useCallback(
+    (sheetId, value) => {
+      if (!sheetId) return;
+      const parsed = Number(value);
+      if (Number.isNaN(parsed) || parsed < 1) return;
+      reorderSheet(sheetId, parsed - 1);
+    },
+    [reorderSheet]
+  );
+
+  const handleSaveSheets = useCallback(async () => {
     if (!selectedResultId) return;
     try {
-      await updateResultTable(selectedResultId, tableData);
-      showNotification('테이블 데이터가 저장되었습니다.', 'success');
-      setTableDirty(false);
-      fetchResultDetail(selectedResultId);
+      setIsSheetSaving(true);
+      const payload = {
+        sheets: sortedSheets.map(({ sheetName, sheetOrder, htmlContent, imageBase64 }) => ({
+          sheetName,
+          sheetOrder,
+          htmlContent,
+          imageBase64: imageBase64 || null,
+        })),
+      };
+      await updateResult(selectedResultId, payload);
+      originalSheetsRef.current = sortedSheets.map(
+        ({ localId, sheetName, sheetOrder, htmlContent, imageBase64 }) => ({
+          localId,
+          sheetName,
+          sheetOrder,
+          htmlContent,
+          imageBase64,
+        })
+      );
+      showNotification('시트가 저장되었습니다.', 'success');
+      await fetchResultDetail(selectedResultId);
     } catch (error) {
       const message =
         error.response?.data?.message ||
         error.response?.data?.errors?.map((err) => err.message).join(', ') ||
-        '테이블 저장에 실패했습니다.';
+        '시트 저장에 실패했습니다.';
       showNotification(message, 'error', 5000);
+    } finally {
+      setIsSheetSaving(false);
     }
-  };
+  }, [fetchResultDetail, selectedResultId, showNotification, sortedSheets]);
 
-  const handleExportJsonl = () => {
-    if (!tableData.rows.length) {
-      showNotification('내보낼 데이터가 없습니다.', 'warning');
+  const getImagePreviewSrc = useCallback((imageBase64) => {
+    if (!imageBase64) return null;
+    return imageBase64.startsWith('data:')
+      ? imageBase64
+      : `data:image/png;base64,${imageBase64}`;
+  }, []);
+
+  const handleDownloadAttachment = () => {
+    if (!resultDetail) {
+      showNotification('다운로드할 첨부 파일이 없습니다.', 'warning');
       return;
     }
-    try {
-      const lines = tableData.rows.map((row) => JSON.stringify(row));
-      const blob = new Blob([lines.join('\n')], { type: 'application/jsonl' });
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      anchor.href = url;
-      anchor.download = `result-${selectedResultId}-table-${timestamp}.jsonl`;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-      showNotification('JSONL 파일을 내보냈습니다.', 'success');
-    } catch (error) {
-      showNotification('JSONL 내보내기에 실패했습니다.', 'error');
+    const downloadUrl = resultDetail.originalDocument?.downloadUrl || resultDetail.uri;
+    if (!downloadUrl) {
+      showNotification('다운로드할 첨부 파일이 없습니다.', 'warning');
+      return;
     }
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.download = '';
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.click();
   };
 
-  const handleDownloadAttachment = async () => {
+  const handleDownloadResultJsonl = async () => {
     if (!selectedResultId) return;
     try {
-      const res = await downloadResultJsonl(selectedResultId, { format: 'jsonl' });
+      const res = await downloadResultJsonl(selectedResultId);
       const blob = new Blob([res.data], { type: 'application/jsonl' });
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -210,8 +427,9 @@ const Results = () => {
       anchor.download = `result-${selectedResultId}.jsonl`;
       anchor.click();
       window.URL.revokeObjectURL(url);
+      showNotification('JSONL 파일을 다운로드했습니다.', 'success');
     } catch (error) {
-      showNotification('파일 다운로드에 실패했습니다.', 'error');
+      showNotification('JSONL 다운로드에 실패했습니다.', 'error');
     }
   };
 
@@ -271,6 +489,14 @@ const Results = () => {
   };
 
   const handleDeleteResult = async (resultId) => {
+    if (selectedResultId === resultId && hasDirtySheets) {
+      const proceed = window.confirm(
+        '현재 결과의 시트에 저장되지 않은 변경 사항이 있습니다. 삭제하면 변경 내용이 모두 사라집니다. 계속하시겠습니까?'
+      );
+      if (!proceed) {
+        return;
+      }
+    }
     if (!window.confirm('정말로 이 결과를 삭제하시겠습니까?')) {
       return;
     }
@@ -399,44 +625,6 @@ const Results = () => {
     }
   };
 
-  const renderTableGrid = () => {
-    if (!tableData.columns.length) {
-      return <div className="empty-state">표 데이터가 없습니다.</div>;
-    }
-
-    return (
-      <div className="result-grid">
-        <table className="data-table">
-          <thead>
-            <tr>
-              {tableData.columns.map((col) => (
-                <th key={col.key || col.field}>{col.headerName || col.title || col.key}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tableData.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {tableData.columns.map((col) => {
-                  const columnKey = col.key || col.field;
-                  return (
-                    <td key={columnKey}>
-                      <input
-                        className="table-cell-input"
-                        value={row[columnKey] ?? ''}
-                        onChange={(e) => handleTableCellChange(rowIndex, columnKey, e.target.value)}
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
   const resultMetadataSections = useMemo(() => {
     if (!resultDetail) return [];
     return [
@@ -459,9 +647,30 @@ const Results = () => {
   }, [resultDetail]);
 
   const renderDocumentPreview = () => {
+    if (selectedSheet) {
+      const thumbnailSrc = getImagePreviewSrc(selectedSheet.imageBase64);
+      if (thumbnailSrc) {
+        return (
+          <img
+            src={thumbnailSrc}
+            alt={`${selectedSheet.sheetName || '시트'} 썸네일`}
+            className="sheet-thumbnail-image"
+          />
+        );
+      }
+      if (selectedSheet.htmlContent) {
+        return (
+          <div className="preview-fallback">
+            <p>썸네일 이미지가 없습니다. 아래 전체보기 탭에서 HTML을 확인하세요.</p>
+          </div>
+        );
+      }
+    }
+
     if (!resultDetail?.originalDocument) {
       return <div className="empty-state">원본 문서 정보가 없습니다.</div>;
     }
+
     const previewHtml = resultDetail.originalDocument.previewHtml;
     const downloadUrl = resultDetail.originalDocument.downloadUrl || resultDetail.uri;
 
@@ -488,24 +697,33 @@ const Results = () => {
     );
   };
 
-  const renderSourcesView = () => {
-    if (sourcesView === 'html') {
-      if (!sourcesData.html) return <div className="empty-state">HTML 소스가 없습니다.</div>;
+  const renderSelectedSheetContent = () => {
+    if (!selectedSheet) {
+      return <div className="empty-state">시트를 선택하면 내용이 표시됩니다.</div>;
+    }
+
+    if (sheetView === 'source') {
       return (
-        <pre className="code-view" dangerouslySetInnerHTML={{ __html: sourcesData.html }} />
+        <textarea
+          className="sheet-code-editor"
+          value={selectedSheet.htmlContent || ''}
+          onChange={(event) => handleSheetHtmlChange(selectedSheet.localId, event.target.value)}
+          spellCheck={false}
+        />
       );
     }
 
-    if (!sourcesData.json) {
-      return <div className="empty-state">JSON 소스가 없습니다.</div>;
+    if (!selectedSheet.htmlContent) {
+      return <div className="empty-state">HTML 내용이 없습니다.</div>;
     }
 
     return (
-      <pre className="code-view">
-        {typeof sourcesData.json === 'string'
-          ? sourcesData.json
-          : JSON.stringify(sourcesData.json, null, 2)}
-      </pre>
+      <div className="sheet-html-preview">
+        <div
+          className="sheet-html-content"
+          dangerouslySetInnerHTML={{ __html: selectedSheet.htmlContent }}
+        />
+      </div>
     );
   };
 
@@ -515,13 +733,13 @@ const Results = () => {
       <h1 className="page-title">결과 상세</h1>
       <div className="page-content results-layout">
         <div className="results-main">
-          <FilterBar
-            rightActions={
-              <button className="btn-primary" onClick={() => setSelectedResultId(null)}>
-                선택 해제
-              </button>
-            }
-          >
+            <FilterBar
+              rightActions={
+                <button className="btn-primary" onClick={() => attemptSelectResult(null)}>
+                  선택 해제
+                </button>
+              }
+            >
             <input
               className="form-input"
               type="search"
@@ -575,47 +793,49 @@ const Results = () => {
                       결과 데이터가 없습니다.
                     </td>
                   </tr>
-                ) : (
-                  results.map((result) => {
-                    const isActive = selectedResultId === result.id;
-                    return (
-                      <tr
-                        key={result.id}
-                        className={isActive ? 'is-selected-row' : ''}
-                        onClick={() => handleRowClick(result)}
-                      >
-                        <td>{result.id}</td>
-                        <td>{result.pipelineId}</td>
-                        <td>
-                          <StatusBadge status={result.status} size="small" />
-                        </td>
-                        <td>{formatDate(result.startedAt)}</td>
-                        <td>{formatDate(result.finishedAt)}</td>
-                        <td>
-                          <button
-                            className="btn-edit"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedResultId(result.id);
-                              handleOpenResultModal(result);
-                            }}
-                          >
-                            수정
-                          </button>
-                          <button
-                            className="btn-delete"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleDeleteResult(result.id);
-                            }}
-                          >
-                            삭제
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
+                  ) : (
+                    results.map((result) => {
+                      const isActive = selectedResultId === result.id;
+                      return (
+                        <tr
+                          key={result.id}
+                          className={isActive ? 'is-selected-row' : ''}
+                          onClick={() => handleRowClick(result)}
+                        >
+                          <td>{result.id}</td>
+                          <td>{result.pipelineId}</td>
+                          <td>
+                            <StatusBadge status={result.status} size="small" />
+                          </td>
+                          <td>{formatDate(result.startedAt)}</td>
+                          <td>{formatDate(result.finishedAt)}</td>
+                          <td>
+                            <button
+                              className="btn-edit"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                const selected = attemptSelectResult(result.id);
+                                if (selected) {
+                                  handleOpenResultModal(result);
+                                }
+                              }}
+                            >
+                              수정
+                            </button>
+                            <button
+                              className="btn-delete"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteResult(result.id);
+                              }}
+                            >
+                              삭제
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
               </tbody>
             </table>
           </div>
@@ -628,60 +848,186 @@ const Results = () => {
             <div className="empty-state">결과를 선택하면 상세 정보가 표시됩니다.</div>
           ) : (
             <>
-              <div className="result-top-section">
-                <div className="preview-container">{renderDocumentPreview()}</div>
-                <DetailPanel
-                  title={resultDetail.originalDocument?.fileName || `결과 #${resultDetail.id}`}
-                  status={resultDetail.status}
-                  sections={resultMetadataSections}
-                  actions={
-                    <>
-                      <button className="btn-edit" onClick={() => handleOpenResultModal(resultDetail)}>
-                        결과 수정
-                      </button>
-                      <button className="btn-secondary" onClick={handleDownloadAttachment}>
-                        첨부 다운로드
-                      </button>
-                    </>
-                  }
-                />
-              </div>
+                <div className="result-top-section">
+                  <div className="preview-container">{renderDocumentPreview()}</div>
+                  <DetailPanel
+                    title={resultDetail.originalDocument?.fileName || `결과 #${resultDetail.id}`}
+                    status={resultDetail.status}
+                    sections={resultMetadataSections}
+                    actions={
+                      <>
+                        <button className="btn-edit" onClick={() => handleOpenResultModal(resultDetail)}>
+                          결과 수정
+                        </button>
+                        <button className="btn-secondary" onClick={handleDownloadAttachment}>
+                          첨부 다운로드
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          onClick={handleDownloadResultJsonl}
+                          title="각 라인의 html 값은 base64 인코딩된 상태입니다."
+                        >
+                          JSONL 다운로드
+                        </button>
+                      </>
+                    }
+                  />
+                </div>
 
-              <div className="result-tabs">
-                <div className="tabs-header">
-                  <button
-                    className={`tab-button ${sourcesView === 'table' ? 'active' : ''}`}
-                    onClick={() => setSourcesView('table')}
-                  >
-                    Table
-                  </button>
-                  <button
-                    className={`tab-button ${sourcesView === 'html' ? 'active' : ''}`}
-                    onClick={() => setSourcesView('html')}
-                  >
-                    Source (HTML)
-                  </button>
-                  <button
-                    className={`tab-button ${sourcesView === 'json' ? 'active' : ''}`}
-                    onClick={() => setSourcesView('json')}
-                  >
-                    Source (JSON)
-                  </button>
-                  {sourcesView === 'table' && (
-                    <div className="tab-actions">
-                      <button className="btn-secondary" onClick={handleSaveTable} disabled={!tableDirty}>
-                        변경사항 저장
+                <div className="sheet-editor">
+                  <div className="sheet-editor-header">
+                    <div className="sheet-selector">
+                      <span className="sheet-selector-label">시트 선택</span>
+                      <div className="sheet-selector-tabs">
+                        {sortedSheets.map((sheet, index) => {
+                          const isActive = sheet.localId === selectedSheetId;
+                          const dirty = isSheetDirty(sheet);
+                          const label = `${sheet.sheetName || `시트 ${index + 1}`}${dirty ? ' *' : ''}`;
+                          return (
+                            <button
+                              type="button"
+                              key={sheet.localId}
+                              className={`sheet-tab ${isActive ? 'active' : ''}`}
+                              onClick={() => handleSelectSheet(sheet.localId)}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <select
+                        className="sheet-selector-dropdown"
+                        value={selectedSheetId || ''}
+                        onChange={(event) => handleSelectSheet(event.target.value)}
+                      >
+                        {sortedSheets.length === 0 ? (
+                          <option value="">시트 없음</option>
+                        ) : (
+                          sortedSheets.map((sheet, index) => {
+                            const dirty = isSheetDirty(sheet);
+                            const label = `${sheet.sheetName || `시트 ${index + 1}`}${dirty ? ' *' : ''}`;
+                            return (
+                              <option key={sheet.localId} value={sheet.localId}>
+                                {label}
+                              </option>
+                            );
+                          })
+                        )}
+                      </select>
+                    </div>
+                    <div className="sheet-view-toggle">
+                      <button
+                        type="button"
+                        className={`sheet-view-button ${sheetView === 'preview' ? 'active' : ''}`}
+                        onClick={() => setSheetView('preview')}
+                      >
+                        전체보기 (HTML table)
                       </button>
-                      <button className="btn-primary" onClick={handleExportJsonl}>
-                        JSONL 내보내기
+                      <button
+                        type="button"
+                        className={`sheet-view-button ${sheetView === 'source' ? 'active' : ''}`}
+                        onClick={() => setSheetView('source')}
+                      >
+                        소스보기
                       </button>
                     </div>
+                    <div className="sheet-editor-actions">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => handleSheetMove(selectedSheetId, 'up')}
+                        disabled={!selectedSheetId || !canMoveUp}
+                      >
+                        위로
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => handleSheetMove(selectedSheetId, 'down')}
+                        disabled={!selectedSheetId || !canMoveDown}
+                      >
+                        아래로
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={handleSaveSheets}
+                        disabled={!hasDirtySheets || isSheetSaving}
+                      >
+                        {isSheetSaving ? '저장 중...' : '시트 저장'}
+                      </button>
+                    </div>
+                  </div>
+                  {sortedSheets.length === 0 ? (
+                    <div className="empty-state">시트 데이터가 없습니다.</div>
+                  ) : (
+                    <>
+                      <div className="sheet-metadata">
+                        {selectedSheet ? (
+                          <>
+                            <div className="sheet-form-row">
+                              <div className="form-group">
+                                <label className="form-label">시트 이름</label>
+                                <input
+                                  className="form-input"
+                                  value={selectedSheet.sheetName || ''}
+                                  onChange={(event) =>
+                                    handleSheetNameChange(selectedSheet.localId, event.target.value)
+                                  }
+                                  placeholder="시트 이름"
+                                />
+                              </div>
+                              <div className="form-group">
+                                <label className="form-label">표시 순서</label>
+                                <input
+                                  className="form-input"
+                                  type="number"
+                                  min={1}
+                                  max={sortedSheets.length}
+                                  value={selectedSheet.sheetOrder + 1}
+                                  onChange={(event) =>
+                                    handleSheetOrderInputChange(selectedSheet.localId, event.target.value)
+                                  }
+                                />
+                                <p className="form-hint">작은 숫자일수록 앞에 표시됩니다.</p>
+                              </div>
+                            </div>
+                            <div className="form-group">
+                              <label className="form-label">썸네일 이미지</label>
+                              <div className="sheet-thumbnail-actions">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0] || null;
+                                    handleSheetImageUpload(selectedSheet.localId, file);
+                                    event.target.value = '';
+                                  }}
+                                />
+                                {selectedSheet.imageBase64 && (
+                                  <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() => handleSheetImageRemove(selectedSheet.localId)}
+                                  >
+                                    제거
+                                  </button>
+                                )}
+                              </div>
+                              <p className="form-hint">업로드 시 base64 문자열이 저장됩니다.</p>
+                            </div>
+                            <p className="form-hint">
+                              HTML은 저장 시 원문 그대로 전달되며 백엔드에서 base64로 인코딩됩니다.
+                            </p>
+                          </>
+                        ) : (
+                          <div className="empty-state">시트를 선택하면 설정을 변경할 수 있습니다.</div>
+                        )}
+                      </div>
+                      <div className="sheet-content">{renderSelectedSheetContent()}</div>
+                    </>
                   )}
                 </div>
-                <div className="tabs-body">
-                  {sourcesView === 'table' ? renderTableGrid() : renderSourcesView()}
-                </div>
-              </div>
 
               <div className="feedback-section">
                 <div className="feedback-header">

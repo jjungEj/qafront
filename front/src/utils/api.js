@@ -116,7 +116,7 @@ export const updateResultTable = (id, data) => api.put(`/results/${id}/table`, d
 
 // ==================== 파일 다운로드 ====================
 export const downloadResultJsonl = (id, params = {}) =>
-  api.get(`/results/${id}/export`, { params, responseType: 'blob' });
+  api.get(`/results/${id}/download/jsonl`, { params, responseType: 'blob' });
 
 export default api;
 
