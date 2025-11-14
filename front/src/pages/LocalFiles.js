@@ -5,12 +5,14 @@ import {
   createLocalFile,
   updateLocalFile,
   deleteLocalFile,
+  uploadLocalFile,
 } from '../utils/api';
 import FilterBar from '../components/FilterBar';
 import SummaryCard from '../components/SummaryCard';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
 import { NotificationContainer } from '../components/Notification';
+import LocalFileUploader from '../components/LocalFileUploader';
 import './Page.css';
 import './LocalFiles.css';
 
@@ -160,6 +162,31 @@ const LocalFiles = () => {
     }
   };
 
+  const handleFileUpload = useCallback(
+    async (file) => {
+      try {
+        const response = await uploadLocalFile(file);
+        const newFile = response.data;
+        setLocalFiles((prev) => {
+          const filtered = prev.filter((item) => item.id !== newFile.id);
+          return [newFile, ...filtered];
+        });
+        showNotification('업로드가 완료되었습니다.', 'success');
+        fetchSummary();
+        return newFile;
+      } catch (error) {
+        const message =
+          error.response?.data?.message ||
+          error.response?.data?.errors?.map((err) => err.message).join(', ') ||
+          error.message ||
+          '업로드에 실패했습니다.';
+        showNotification(message, 'error', 5000);
+        throw error;
+      }
+    },
+    [fetchSummary, showNotification]
+  );
+
   const handleDelete = async (id) => {
     if (!window.confirm('정말로 이 로컬 파일을 삭제하시겠습니까?')) {
       return;
@@ -227,15 +254,18 @@ const LocalFiles = () => {
             status="completed"
             footer={summary?.lastCompletedAt ? `최근 완료: ${formatDate(summary.lastCompletedAt)}` : null}
           />
-        </section>
+          </section>
 
-        <FilterBar
-          rightActions={
-            <button className="btn-primary" onClick={() => handleOpenModal(null)}>
-              새 로컬 파일 등록
-            </button>
-          }
-        >
+          <FilterBar
+            rightActions={
+              <div className="local-file-actions">
+                <LocalFileUploader onUpload={handleFileUpload} />
+                <button className="btn-primary" onClick={() => handleOpenModal(null)}>
+                  새 로컬 파일 등록
+                </button>
+              </div>
+            }
+          >
           <select
             className="form-select"
             value={filters.status}

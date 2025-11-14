@@ -24,3 +24,11 @@
   font-size: 14px;
   color: #34495e;
 }
+
+.local-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
