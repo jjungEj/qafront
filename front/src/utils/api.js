@@ -69,6 +69,24 @@ export const createLocalFile = (data) => api.post('/local-files', data);
 export const updateLocalFile = (id, data) => api.put(`/local-files/${id}`, data);
 export const deleteLocalFile = (id) => api.delete(`/local-files/${id}`);
 export const getLocalFileSummary = () => api.get('/local-files/summary');
+export const uploadLocalFile = (file, config = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data',
+  };
+
+  return api.post('/local-files/upload', formData, {
+    ...config,
+    headers,
+  });
+};
 
 // ==================== 모델 (Models) ====================
 export const getModels = () => api.get('/models');

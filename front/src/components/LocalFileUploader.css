@@ -1,0 +1,13 @@
+.local-file-uploader {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.local-file-uploader input[type='file'] {
+  min-width: 220px;
+}
+
+.local-file-uploader .btn-primary {
+  white-space: nowrap;
+}
