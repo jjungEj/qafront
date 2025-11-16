@@ -33,7 +33,7 @@ const LocalFileUploader = ({ onUpload, disabled }) => {
     <form className="local-file-uploader" onSubmit={handleSubmit}>
       <input
         type="file"
-        accept=".xlsx,.csv"
+        accept=".xlsx,.xls,.csv"
         onChange={handleFileChange}
         disabled={isUploading || disabled}
       />

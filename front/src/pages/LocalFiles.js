@@ -1,353 +1,188 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  getLocalFiles,
-  getLocalFileSummary,
-  createLocalFile,
-  updateLocalFile,
-  deleteLocalFile,
-  uploadLocalFile,
-} from '../utils/api';
-import FilterBar from '../components/FilterBar';
-import SummaryCard from '../components/SummaryCard';
+import React, { useState, useEffect, useCallback } from 'react';
+import { getLocalFileResults, getResult, uploadLocalFile } from '../utils/api';
+import { formatFileSize, formatDateTime, formatProcessingTime } from '../utils/format';
+import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
-import { NotificationContainer } from '../components/Notification';
 import LocalFileUploader from '../components/LocalFileUploader';
+import { NotificationContainer } from '../components/Notification';
 import './Page.css';
-import './LocalFiles.css';
-
-const DEFAULT_FORM = {
-  fileName: '',
-  fileSize: '',
-  fileType: '',
-  status: 'pending',
-  queuedAt: '',
-  completedAt: '',
-  deletable: false,
-};
 
 const LocalFiles = () => {
-  const [localFiles, setLocalFiles] = useState([]);
-  const [summary, setSummary] = useState(null);
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState([]);
   const [filters, setFilters] = useState({
     status: '',
     search: '',
     startDate: '',
-    endDate: '',
+    endDate: ''
   });
-  const [notifications, setNotifications] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState(DEFAULT_FORM);
-  const [formErrors, setFormErrors] = useState({});
-  const [editingFile, setEditingFile] = useState(null);
+  const [selectedResult, setSelectedResult] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const navigate = useNavigate();
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
-    setNotifications((prev) => [...prev, { id, message, type, duration }]);
+    setNotifications(prev => [...prev, { id, message, type, duration }]);
   }, []);
 
   const removeNotification = useCallback((id) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const fetchSummary = useCallback(async () => {
-    try {
-      const res = await getLocalFileSummary();
-      setSummary(res.data);
-    } catch (error) {
-      showNotification('로컬 파일 요약을 불러오지 못했습니다.', 'error');
-    }
-  }, [showNotification]);
-
-  const fetchLocalFileList = useCallback(async () => {
+  const fetchResults = useCallback(async () => {
     try {
       setLoading(true);
-      const params = {
-        status: filters.status || undefined,
-        search: filters.search || undefined,
-        startedAfter: filters.startDate || undefined,
-        completedBefore: filters.endDate || undefined,
-      };
-      const res = await getLocalFiles(params);
-      setLocalFiles(res.data);
+      const response = await getLocalFileResults();
+      setResults(response.data || []);
     } catch (error) {
-      showNotification('로컬 파일 목록을 불러오지 못했습니다.', 'error');
+      showNotification('결과 목록을 불러오는데 실패했습니다.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [filters.endDate, filters.search, filters.startDate, filters.status, showNotification]);
+  }, [showNotification]);
 
   useEffect(() => {
-    fetchSummary();
-  }, [fetchSummary]);
+    fetchResults();
+  }, [fetchResults]);
 
-  useEffect(() => {
-    fetchLocalFileList();
-  }, [fetchLocalFileList]);
-
-  const handleOpenModal = (file) => {
-    if (file) {
-      setEditingFile(file);
-      setFormData({
-        fileName: file.fileName || '',
-        fileSize: file.fileSize ?? '',
-        fileType: file.fileType || '',
-        status: file.status || 'pending',
-        queuedAt: file.queuedAt ? toLocalDatetimeInput(file.queuedAt) : '',
-        completedAt: file.completedAt ? toLocalDatetimeInput(file.completedAt) : '',
-        deletable: Boolean(file.deletable),
-      });
-    } else {
-      setEditingFile(null);
-      setFormData(DEFAULT_FORM);
-    }
-    setFormErrors({});
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setEditingFile(null);
-    setFormData(DEFAULT_FORM);
-    setFormErrors({});
-  };
-
-  const validateForm = () => {
-    const errors = {};
-    if (!formData.fileName.trim()) {
-      errors.fileName = '파일 이름은 필수입니다.';
-    }
-    if (!formData.fileType.trim()) {
-      errors.fileType = '파일 형식은 필수입니다.';
-    }
-    if (formData.fileSize && Number.isNaN(Number(formData.fileSize))) {
-      errors.fileSize = '파일 크기는 숫자여야 합니다.';
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateForm()) {
-      return;
-    }
-    const payload = {
-      fileName: formData.fileName.trim(),
-      fileSize: formData.fileSize ? Number(formData.fileSize) : null,
-      fileType: formData.fileType.trim(),
-      status: formData.status,
-      queuedAt: formData.queuedAt ? new Date(formData.queuedAt).toISOString() : null,
-      completedAt: formData.completedAt ? new Date(formData.completedAt).toISOString() : null,
-      deletable: Boolean(formData.deletable),
-    };
+  const handleOpenDetail = async (resultId) => {
     try {
-      if (editingFile) {
-        await updateLocalFile(editingFile.id, payload);
-        showNotification('로컬 파일이 수정되었습니다.', 'success');
-      } else {
-        await createLocalFile(payload);
-        showNotification('로컬 파일이 추가되었습니다.', 'success');
-      }
-      handleCloseModal();
-      fetchLocalFileList();
-      fetchSummary();
+      const response = await getResult(resultId);
+      setSelectedResult(response.data);
+      setIsDetailModalOpen(true);
     } catch (error) {
-      const message =
-        error.response?.data?.message ||
-        error.response?.data?.errors?.map((err) => err.message).join(', ') ||
-        '로컬 파일 저장에 실패했습니다.';
-      showNotification(message, 'error', 5000);
+      showNotification('결과 상세 정보를 불러오는데 실패했습니다.', 'error');
     }
   };
 
-  const handleFileUpload = useCallback(
-    async (file) => {
-      try {
-        const response = await uploadLocalFile(file);
-        const newFile = response.data;
-        setLocalFiles((prev) => {
-          const filtered = prev.filter((item) => item.id !== newFile.id);
-          return [newFile, ...filtered];
-        });
-        showNotification('업로드가 완료되었습니다.', 'success');
-        fetchSummary();
-        return newFile;
-      } catch (error) {
-        const message =
-          error.response?.data?.message ||
-          error.response?.data?.errors?.map((err) => err.message).join(', ') ||
-          error.message ||
-          '업로드에 실패했습니다.';
-        showNotification(message, 'error', 5000);
-        throw error;
-      }
-    },
-    [fetchSummary, showNotification]
-  );
+  const handleViewInResults = (resultId) => {
+    navigate(`/results?resultId=${resultId}`);
+  };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('정말로 이 로컬 파일을 삭제하시겠습니까?')) {
-      return;
-    }
+  const handleFileUpload = useCallback(async (file) => {
     try {
-      await deleteLocalFile(id);
-      showNotification('로컬 파일이 삭제되었습니다.', 'success');
-      fetchLocalFileList();
-      fetchSummary();
+      const response = await uploadLocalFile(file);
+      showNotification('파일이 성공적으로 업로드되었습니다.', 'success');
+      // 업로드 후 결과 목록 새로고침
+      fetchResults();
+      return response.data;
     } catch (error) {
-      const message = error.response?.data?.message || '로컬 파일 삭제에 실패했습니다.';
-      showNotification(message, 'error');
+      const errorMessage = error.response?.data?.message || 
+                          (error.response?.data?.errors?.map(e => e.message).join(', ')) ||
+                          '파일 업로드에 실패했습니다.';
+      showNotification(errorMessage, 'error');
+      throw error;
     }
+  }, [showNotification]);
+
+  const getStatusBadge = (status) => {
+    return <StatusBadge status={status} size="small" />;
   };
 
-  const filteredSummaryFooter = useMemo(() => {
-    if (!summary) return null;
-    return `처리중 ${summary.processingCount ?? 0} • 실패 ${summary.failedCount ?? 0}`;
-  }, [summary]);
-
-  const toLocalDatetimeInput = (value) => {
-    try {
-      return new Date(value).toISOString().slice(0, 16);
-    } catch (error) {
-      return '';
+  const filteredResults = results.filter(result => {
+    if (filters.status && result.status !== filters.status) return false;
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      const matchesName = result.documentName?.toLowerCase().includes(searchLower);
+      const matchesId = result.id?.toString().includes(searchLower);
+      if (!matchesName && !matchesId) return false;
     }
-  };
-
-  const formatDate = (value) => {
-    if (!value) return '-';
-    try {
-      return new Date(value).toLocaleString('ko-KR');
-    } catch (error) {
-      return value;
+    if (filters.startDate && result.startedAt) {
+      if (new Date(result.startedAt) < new Date(filters.startDate)) return false;
     }
-  };
+    if (filters.endDate && result.startedAt) {
+      const endDate = new Date(filters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      if (new Date(result.startedAt) > endDate) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="page-container">
-      <NotificationContainer notifications={notifications} removeNotification={removeNotification} />
-      <h1 className="page-title">로컬 파일 관리</h1>
+      <NotificationContainer 
+        notifications={notifications} 
+        removeNotification={removeNotification} 
+      />
+      <h1 className="page-title">로컬 파일</h1>
       <div className="page-content">
-        <section className="local-files-summary">
-          <SummaryCard
-            title="총 파일"
-            icon="📦"
-            value={summary?.totalCount ?? '-'}
-            description="등록된 전체 문서 수"
-            status={summary?.latestStatus}
-            footer={summary ? `삭제 가능 ${summary.deletableCount ?? 0}` : null}
+        <div className="action-buttons" style={{ marginBottom: '20px' }}>
+          <LocalFileUploader onUpload={handleFileUpload} />
+        </div>
+        
+        <div className="search-section">
+          <input
+            type="text"
+            className="search-input"
+            placeholder="파일명 검색..."
+            value={filters.search}
+            onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
           />
-          <SummaryCard
-            title="대기 큐"
-            icon="⏳"
-            value={summary?.pendingCount ?? 0}
-            description="처리 대기 중인 파일"
-            status="pending"
-            footer={filteredSummaryFooter}
-          />
-          <SummaryCard
-            title="완료"
-            icon="✅"
-            value={summary?.completedCount ?? 0}
-            description="처리 완료된 파일"
-            status="completed"
-            footer={summary?.lastCompletedAt ? `최근 완료: ${formatDate(summary.lastCompletedAt)}` : null}
-          />
-          </section>
-
-          <FilterBar
-            rightActions={
-              <div className="local-file-actions">
-                <LocalFileUploader onUpload={handleFileUpload} />
-                <button className="btn-primary" onClick={() => handleOpenModal(null)}>
-                  새 로컬 파일 등록
-                </button>
-              </div>
-            }
-          >
           <select
             className="form-select"
             value={filters.status}
-            onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+            onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+            style={{ width: '150px' }}
           >
-            <option value="">전체 상태</option>
-            <option value="pending">대기중</option>
-            <option value="processing">처리중</option>
-            <option value="completed">완료</option>
-            <option value="failed">실패</option>
+            <option value="">전체</option>
+            <option value="COMPLETED">정상</option>
+            <option value="FAILED">오류</option>
+            <option value="PENDING">대기</option>
           </select>
           <input
+            type="date"
             className="form-input"
-            type="search"
-            placeholder="문서명 검색"
-            value={filters.search}
-            onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
+            value={filters.startDate}
+            onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
+            style={{ width: '150px' }}
           />
-          <div className="date-range-inputs">
-            <input
-              className="form-input"
-              type="date"
-              value={filters.startDate}
-              onChange={(e) => setFilters((prev) => ({ ...prev, startDate: e.target.value }))}
-            />
-            <span>~</span>
-            <input
-              className="form-input"
-              type="date"
-              value={filters.endDate}
-              onChange={(e) => setFilters((prev) => ({ ...prev, endDate: e.target.value }))}
-            />
-          </div>
-        </FilterBar>
+          <span>~</span>
+          <input
+            type="date"
+            className="form-input"
+            value={filters.endDate}
+            onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
+            style={{ width: '150px' }}
+          />
+        </div>
 
         <div className="table-container">
           <table className="data-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>파일명</th>
-                <th>크기</th>
-                <th>형식</th>
+                <th>파일 이름</th>
                 <th>상태</th>
-                <th>큐 등록</th>
-                <th>완료</th>
-                <th>삭제 가능</th>
+                <th>크기</th>
+                <th>건수</th>
+                <th>등록일</th>
                 <th>작업</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="9" className="empty-message">
-                    로딩 중...
-                  </td>
+                  <td colSpan="6" className="empty-message">로딩 중...</td>
                 </tr>
-              ) : localFiles.length === 0 ? (
+              ) : filteredResults.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="empty-message">
-                    로컬 파일이 없습니다.
-                  </td>
+                  <td colSpan="6" className="empty-message">결과 데이터가 없습니다.</td>
                 </tr>
               ) : (
-                localFiles.map((file) => (
-                  <tr key={file.id}>
-                    <td>{file.id}</td>
-                    <td>{file.fileName}</td>
-                    <td>{file.fileSize ? `${file.fileSize.toLocaleString()} bytes` : '-'}</td>
-                    <td>{file.fileType || '-'}</td>
+                filteredResults.map((result) => (
+                  <tr key={result.id}>
+                    <td>{result.documentName || result.originalFileName || '-'}</td>
+                    <td>{getStatusBadge(result.status)}</td>
+                    <td>{formatFileSize(result.originalFileSize)}</td>
+                    <td>{result.sheets?.length || 0}건</td>
+                    <td>{formatDateTime(result.startedAt)}</td>
                     <td>
-                      <StatusBadge status={file.status} size="small" />
-                    </td>
-                    <td>{formatDate(file.queuedAt)}</td>
-                    <td>{formatDate(file.completedAt)}</td>
-                    <td>{file.deletable ? '가능' : '불가'}</td>
-                    <td>
-                      <button className="btn-edit" onClick={() => handleOpenModal(file)}>
-                        수정
-                      </button>
-                      <button className="btn-delete" onClick={() => handleDelete(file.id)}>
-                        삭제
+                      <button 
+                        className="btn-view" 
+                        onClick={() => handleOpenDetail(result.id)}
+                      >
+                        열기
                       </button>
                     </td>
                   </tr>
@@ -358,107 +193,84 @@ const LocalFiles = () => {
         </div>
       </div>
 
+      {/* 결과 상세 모달 */}
       <Modal
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        title={editingFile ? '로컬 파일 수정' : '새 로컬 파일 등록'}
-        size="medium"
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedResult(null);
+        }}
+        title="결과 상세"
+        size="large"
       >
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">
-              파일명 <span className="required">*</span>
-            </label>
-            <input
-              className="form-input"
-              value={formData.fileName}
-              onChange={(e) => setFormData((prev) => ({ ...prev, fileName: e.target.value }))}
-              placeholder="파일명을 입력하세요"
-            />
-            {formErrors.fileName && <div className="form-error">{formErrors.fileName}</div>}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">파일 크기 (byte)</label>
-            <input
-              className="form-input"
-              type="number"
-              min={0}
-              value={formData.fileSize}
-              onChange={(e) => setFormData((prev) => ({ ...prev, fileSize: e.target.value }))}
-            />
-            {formErrors.fileSize && <div className="form-error">{formErrors.fileSize}</div>}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">
-              파일 형식 <span className="required">*</span>
-            </label>
-            <input
-              className="form-input"
-              value={formData.fileType}
-              onChange={(e) => setFormData((prev) => ({ ...prev, fileType: e.target.value }))}
-              placeholder="예: application/pdf"
-            />
-            {formErrors.fileType && <div className="form-error">{formErrors.fileType}</div>}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">상태</label>
-            <select
-              className="form-select"
-              value={formData.status}
-              onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-            >
-              <option value="pending">대기중</option>
-              <option value="processing">처리중</option>
-              <option value="completed">완료</option>
-              <option value="failed">실패</option>
-            </select>
-          </div>
-
-          <div className="form-group form-row">
-            <div>
-              <label className="form-label">큐 등록 시간</label>
-              <input
-                className="form-input"
-                type="datetime-local"
-                value={formData.queuedAt}
-                onChange={(e) => setFormData((prev) => ({ ...prev, queuedAt: e.target.value }))}
-              />
+        {selectedResult && (
+          <div>
+            <div className="form-group">
+              <label className="form-label">파일명</label>
+              <div>{selectedResult.documentName || selectedResult.originalFileName || '-'}</div>
             </div>
-            <div>
-              <label className="form-label">완료 시간</label>
-              <input
-                className="form-input"
-                type="datetime-local"
-                value={formData.completedAt}
-                onChange={(e) => setFormData((prev) => ({ ...prev, completedAt: e.target.value }))}
-              />
+            <div className="form-group">
+              <label className="form-label">상태</label>
+              <div>{getStatusBadge(selectedResult.status)}</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">처리 완료</label>
+              <div>{selectedResult.status === 'COMPLETED' ? '완료' : '미완료'}</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">처리 시간</label>
+              <div>{formatProcessingTime(selectedResult.startedAt, selectedResult.finishedAt)}</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">문서 크기</label>
+              <div>{formatFileSize(selectedResult.originalFileSize)}</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">처리 일시</label>
+              <div>{formatDateTime(selectedResult.finishedAt)}</div>
+            </div>
+            
+            {selectedResult.sheets && selectedResult.sheets.length > 0 && (
+              <div className="form-group">
+                <label className="form-label">추출된 데이터 (HTML)</label>
+                <div style={{ marginTop: '12px' }}>
+                  {selectedResult.sheets.map((sheet, index) => (
+                    <div key={sheet.id || index} style={{ marginBottom: '20px', border: '1px solid #dee2e6', padding: '12px', borderRadius: '4px' }}>
+                      <h4 style={{ marginBottom: '8px' }}>{sheet.sheetName || `시트 ${index + 1}`}</h4>
+                      {sheet.htmlContent && (
+                        <div 
+                          className="sheet-html-content"
+                          dangerouslySetInnerHTML={{ __html: sheet.htmlContent }}
+                          style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid #dee2e6', padding: '8px', borderRadius: '4px' }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="modal-footer">
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => {
+                  setIsDetailModalOpen(false);
+                  setSelectedResult(null);
+                }}
+              >
+                닫기
+              </button>
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={() => handleViewInResults(selectedResult.id)}
+              >
+                결과 페이지에서 보기
+              </button>
             </div>
           </div>
-
-          <div className="form-group checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={formData.deletable}
-                onChange={(e) => setFormData((prev) => ({ ...prev, deletable: e.target.checked }))}
-              />
-              삭제 가능
-            </label>
-            <span className="form-help">삭제 가능 여부에 따라 목록에서 삭제 버튼이 활성화됩니다.</span>
-          </div>
-
-          <div className="modal-footer">
-            <button type="button" className="btn-secondary" onClick={handleCloseModal}>
-              취소
-            </button>
-            <button type="submit" className="btn-primary">
-              {editingFile ? '수정' : '등록'}
-            </button>
-          </div>
-        </form>
+        )}
       </Modal>
     </div>
   );

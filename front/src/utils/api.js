@@ -104,11 +104,16 @@ export const deletePipeline = (id) => api.delete(`/pipelines/${id}`);
 
 // ==================== 결과 (Results) ====================
 export const getResults = (params = {}) => api.get('/results', { params });
+// 로컬 파일에서 업로드된 결과만 조회
+export const getLocalFileResults = () => api.get('/results', { params: { fromLocalFiles: true } });
 export const getResult = (id) => api.get(`/results/${id}`);
 export const createResult = (data) => api.post('/results', data);
 export const updateResult = (id, data) => api.put(`/results/${id}`, data);
 export const deleteResult = (id) => api.delete(`/results/${id}`);
 export const getResultSummary = () => api.get('/results/summary');
+// HTML 수정
+export const updateResultSheetHtml = (resultId, sheetId, htmlContent) => 
+  api.put(`/results/${resultId}/sheets/${sheetId}/html`, { htmlContent });
 
 // ==================== 피드백 (Feedback) ====================
 export const getFeedbacks = (resultId = null) => {
@@ -135,6 +140,24 @@ export const updateResultTable = (id, data) => api.put(`/results/${id}/table`, d
 // ==================== 파일 다운로드 ====================
 export const downloadResultJsonl = (id, params = {}) =>
   api.get(`/results/${id}/download/jsonl`, { params, responseType: 'blob' });
+
+// ==================== QA 문서 (QA Documents) ====================
+// QA 결과 목록 조회 (로컬 파일 결과와 QA 문서 정보 포함)
+export const getQaResults = () => api.get('/qa');
+// QA 결과 상세 조회
+export const getQaResult = (resultId) => api.get(`/qa/results/${resultId}`);
+// QA 문서 조회 (결과 ID로)
+export const getQaDocumentByResultId = (resultId) => api.get(`/qa/results/${resultId}/document`);
+// QA 문서 생성
+export const createQaDocument = (data) => api.post('/qa', data);
+// QA 문서 수정
+export const updateQaDocument = (id, data) => api.put(`/qa/${id}`, data);
+export const deleteQaDocument = (id) => api.delete(`/qa/${id}`);
+// QA 상태 업데이트
+export const updateQaStatus = (resultId, data) => api.put(`/qa/results/${resultId}/status`, data);
+// 코멘트
+export const getQaComments = (resultId) => api.get(`/qa/results/${resultId}/comments`);
+export const createQaComment = (resultId, data) => api.post(`/qa/results/${resultId}/comments`, data);
 
 export default api;
 

@@ -6,11 +6,11 @@ const Sidebar = () => {
   const location = useLocation();
 
   const menuItems = [
-    { path: '/dashboard', label: '대시보드', icon: '📊' },
+    { path: '/system-status', label: '시스템 상태', icon: '🩺' },
     { path: '/local-files', label: '로컬 파일', icon: '📁' },
     { path: '/pipelines', label: '파이프라인', icon: '⚙️' },
     { path: '/results', label: '결과', icon: '🧾' },
-    { path: '/system-status', label: '시스템 상태', icon: '🩺' },
+    { path: '/qa', label: 'QA', icon: '✅' },
   ];
 
   return (
@@ -26,7 +26,7 @@ const Sidebar = () => {
                 to={item.path}
                 className={`menu-link ${
                   location.pathname === item.path ||
-                  (location.pathname === '/' && item.path === '/dashboard')
+                  (location.pathname === '/' && item.path === '/system-status')
                     ? 'active'
                     : ''
                 }`}
