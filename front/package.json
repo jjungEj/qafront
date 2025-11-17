@@ -4,14 +4,16 @@
   "description": "QA WebApp Frontend",
   "private": true,
   "dependencies": {
+    "axios": "^1.6.2",
+    "html2canvas": "^1.4.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
-    "react-scripts": "5.0.1",
-    "axios": "^1.6.2"
+    "react-scripts": "5.0.1"
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:network": "set HOST=0.0.0.0 && react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -35,4 +37,3 @@
   },
   "proxy": "http://localhost:8080"
 }
-

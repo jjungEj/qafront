@@ -159,5 +159,128 @@ export const updateQaStatus = (resultId, data) => api.put(`/qa/results/${resultI
 export const getQaComments = (resultId) => api.get(`/qa/results/${resultId}/comments`);
 export const createQaComment = (resultId, data) => api.post(`/qa/results/${resultId}/comments`, data);
 
+// ==================== QA 파일 관리 (QA File Management) ====================
+
+/**
+ * 파일 업로드 및 저장
+ * 엑셀 파일(xlsx, xls, csv)을 업로드하고 HTML로 변환하여 DB에 저장
+ * 
+ * @param {File} file - 업로드할 엑셀 파일
+ * @param {Object} config - 추가 설정 옵션 (headers 등)
+ * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
+ *   - id: 파일 ID
+ *   - fileName: 파일명
+ *   - fileSize: 파일 크기
+ *   - fileType: 파일 타입
+ *   - sheets: 시트 정보 배열
+ * 
+ * @throws {Error} 파일이 없거나 지원하지 않는 형식인 경우
+ * 
+ * @example
+ * const file = document.querySelector('input[type="file"]').files[0];
+ * const response = await uploadQaFile(file);
+ * console.log(response.data.sheets); // [{ sheetName, htmlContent }, ...]
+ */
+export const uploadQaFile = (file, config = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+  }
+
+  // FormData 생성 (multipart/form-data 형식)
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data', // 파일 업로드를 위한 Content-Type
+  };
+
+  return api.post('/qa/upload', formData, {
+    ...config,
+    headers,
+  });
+};
+
+/**
+ * 파일 목록 조회
+ * 업로드된 모든 파일의 목록을 조회 (업로드 시간 내림차순)
+ * 
+ * @returns {Promise<AxiosResponse>} 파일 목록 배열
+ *   각 파일 객체: { id, fileName, fileSize, fileType, feedback, uploadedAt }
+ * 
+ * @example
+ * const response = await getQaFiles();
+ * const files = response.data; // [{ id: 1, fileName: "example.xlsx", ... }, ...]
+ */
+export const getQaFiles = () => api.get('/qa/files');
+
+/**
+ * 파일 상세 조회
+ * 특정 파일의 상세 정보와 모든 시트의 HTML 내용을 조회
+ * 
+ * @param {number} id - 파일 ID
+ * @returns {Promise<AxiosResponse>} 파일 상세 정보
+ *   - id, fileName, fileSize, fileType, feedback
+ *   - sheets: [{ id, sheetName, sheetOrder, htmlContent }, ...]
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const getQaFileDetail = (id) => api.get(`/qa/files/${id}`);
+
+/**
+ * 피드백 저장
+ * 파일의 확인 사항(피드백)을 저장
+ * 
+ * @param {number} id - 파일 ID
+ * @param {string} feedback - 피드백 내용
+ * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
+ * 
+ * @throws {Error} 피드백이 비어있으면 400 에러, 파일을 찾을 수 없으면 404 에러
+ */
+export const saveQaFileFeedback = (id, feedback) => 
+  api.put(`/qa/files/${id}/feedback`, { feedback });
+
+/**
+ * JSONL 변환
+ * 수정된 HTML을 JSONL 형식으로 변환하여 다운로드
+ * 
+ * @param {Object} data - 변환할 데이터
+ *   - fileName: 파일명
+ *   - sheets: [{ sheetName, htmlContent, imageBase64 }, ...]
+ * @returns {Promise<AxiosResponse>} JSONL 파일 (Blob)
+ * 
+ * 응답 형식:
+ * - Content-Type: application/octet-stream
+ * - Body: JSONL 파일 바이너리
+ * 
+ * JSONL 형식: 각 줄은 {"image":"", "html":"<table>...</table>"} 형식
+ */
+export const convertQaFileToJsonl = (data) => 
+  api.post('/qa/convert/jsonl', data, { responseType: 'blob' });
+
+/**
+ * 편집된 시트 저장
+ * 수정된 HTML 내용을 서버에 저장
+ * 
+ * @param {number} id - 파일 ID
+ * @param {Array} sheets - 저장할 시트 배열 [{ id, htmlContent }, ...]
+ * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const saveQaFileSheets = (id, sheets) => 
+  api.put(`/qa/files/${id}/sheets`, { sheets });
+
+/**
+ * 파일 삭제
+ * 
+ * @param {number} id - 파일 ID
+ * @returns {Promise<AxiosResponse>} 삭제 성공 응답
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const deleteQaFile = (id) => 
+  api.delete(`/qa/files/${id}`);
+
 export default api;
 
