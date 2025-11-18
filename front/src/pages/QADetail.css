@@ -1,0 +1,342 @@
+/* QA Detail 페이지 스타일 */
+.qa-detail-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.qa-detail-container .page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+/* 버튼 스타일 */
+.btn-primary {
+  background: #34495e;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2c3e50;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(44, 62, 80, 0.3);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #34495e;
+  color: #ecf0f1;
+  border: 1px solid #2c3e50;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #2c3e50;
+  border-color: #1a252f;
+  color: white;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 카드 컨테이너 */
+.page-content {
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 폼 그룹 */
+.form-group {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.form-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.form-group > div {
+  font-size: 15px;
+  color: #1f2937;
+  line-height: 1.6;
+}
+
+.form-group h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+/* 텍스트 영역 */
+.form-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1f2937;
+  resize: vertical;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* 시트 탭 */
+.sheet-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #f3f4f6;
+  overflow-x: auto;
+}
+
+.sheet-tab {
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sheet-tab:hover {
+  color: #3b82f6;
+  background: #f9fafb;
+}
+
+.sheet-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+  font-weight: 600;
+}
+
+/* 시트 컨테이너 */
+.sheet-container {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  background: #fafbfc;
+  overflow: visible;
+}
+
+.sheet-container h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+}
+
+/* 테이블 스타일 */
+.sheet-html-content {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  width: 100%;
+}
+
+.sheet-html-content table {
+  border-collapse: collapse;
+  width: auto;
+  min-width: 100%;
+  font-size: 13px;
+  table-layout: auto;
+}
+
+.sheet-html-content table th,
+.sheet-html-content table td {
+  border: 1px solid #e5e7eb;
+  padding: 10px 12px;
+  text-align: left;
+  transition: background-color 0.2s ease;
+}
+
+.sheet-html-content table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.sheet-html-content table td {
+  color: #1f2937;
+}
+
+.sheet-html-content table tr:hover td {
+  background: #f9fafb;
+}
+
+/* 편집 모드 */
+.sheet-html-content.editing-mode table td,
+.sheet-html-content.editing-mode table th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sheet-html-content.editing-mode table td:hover,
+.sheet-html-content.editing-mode table th:hover {
+  background: #eff6ff;
+}
+
+.sheet-html-content table td.selected,
+.sheet-html-content table th.selected {
+  background: #dbeafe !important;
+  border-color: #3b82f6;
+  position: relative;
+}
+
+.sheet-html-content.editing-mode table td.cell-editing,
+.sheet-html-content.editing-mode table th.cell-editing {
+  cursor: text;
+  user-select: text;
+  background: #fffbea;
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+/* 액션 버튼 그룹 */
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-buttons-end {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+/* 편집 툴바 */
+.edit-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.edit-toolbar-left {
+  display: flex;
+  gap: 8px;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .qa-detail-container {
+    padding: 16px;
+  }
+
+  .page-content {
+    padding: 20px;
+  }
+
+  .action-buttons {
+    flex-wrap: wrap;
+  }
+
+  .sheet-container {
+    padding: 12px;
+  }
+
+  .sheet-html-content table {
+    font-size: 12px;
+  }
+
+  .sheet-html-content table th,
+  .sheet-html-content table td {
+    padding: 8px;
+  }
+}
+
+/* 로딩 및 에러 상태 */
+.loading-state,
+.error-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #6b7280;
+  font-size: 15px;
+}
+
+.error-state {
+  color: #ef4444;
+}
+
+/* 스크롤바 스타일 */
+.sheet-container::-webkit-scrollbar,
+.sheet-html-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sheet-container::-webkit-scrollbar-track,
+.sheet-html-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.sheet-container::-webkit-scrollbar-thumb,
+.sheet-html-content::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.sheet-container::-webkit-scrollbar-thumb:hover,
+.sheet-html-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

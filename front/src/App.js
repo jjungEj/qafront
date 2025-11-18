@@ -1,11 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import LocalFiles from './pages/LocalFiles';
-import Pipelines from './pages/Pipelines';
-import Results from './pages/Results';
-import SystemStatus from './pages/SystemStatus';
+import EmptyPage from './pages/EmptyPage';
+import QA from './pages/QA';
+import QADetail from './pages/QADetail';
 import './App.css';
 
 function App() {
@@ -13,12 +11,14 @@ function App() {
     <Router>
       <Layout>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/local-files" element={<LocalFiles />} />
-          <Route path="/pipelines" element={<Pipelines />} />
-          <Route path="/results" element={<Results />} />
-          <Route path="/system-status" element={<SystemStatus />} />
+          <Route path="/" element={<EmptyPage title="시스템 상태" />} />
+          <Route path="/system-status" element={<EmptyPage title="시스템 상태" />} />
+          <Route path="/local-files" element={<EmptyPage title="로컬 파일" />} />
+          <Route path="/pipelines" element={<EmptyPage title="파이프라인" />} />
+          <Route path="/results" element={<EmptyPage title="결과" />} />
+          <Route path="/results/:id" element={<EmptyPage title="결과 조회" />} />
+          <Route path="/qa" element={<QA />} />
+          <Route path="/qa/files/:id" element={<QADetail />} />
         </Routes>
       </Layout>
     </Router>

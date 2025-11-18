@@ -104,11 +104,16 @@ export const deletePipeline = (id) => api.delete(`/pipelines/${id}`);
 
 // ==================== 결과 (Results) ====================
 export const getResults = (params = {}) => api.get('/results', { params });
+// 로컬 파일에서 업로드된 결과만 조회
+export const getLocalFileResults = () => api.get('/results', { params: { fromLocalFiles: true } });
 export const getResult = (id) => api.get(`/results/${id}`);
 export const createResult = (data) => api.post('/results', data);
 export const updateResult = (id, data) => api.put(`/results/${id}`, data);
 export const deleteResult = (id) => api.delete(`/results/${id}`);
 export const getResultSummary = () => api.get('/results/summary');
+// HTML 수정
+export const updateResultSheetHtml = (resultId, sheetId, htmlContent) => 
+  api.put(`/results/${resultId}/sheets/${sheetId}/html`, { htmlContent });
 
 // ==================== 피드백 (Feedback) ====================
 export const getFeedbacks = (resultId = null) => {
@@ -135,6 +140,147 @@ export const updateResultTable = (id, data) => api.put(`/results/${id}/table`, d
 // ==================== 파일 다운로드 ====================
 export const downloadResultJsonl = (id, params = {}) =>
   api.get(`/results/${id}/download/jsonl`, { params, responseType: 'blob' });
+
+// ==================== QA 문서 (QA Documents) ====================
+// QA 결과 목록 조회 (로컬 파일 결과와 QA 문서 정보 포함)
+export const getQaResults = () => api.get('/qa');
+// QA 결과 상세 조회
+export const getQaResult = (resultId) => api.get(`/qa/results/${resultId}`);
+// QA 문서 조회 (결과 ID로)
+export const getQaDocumentByResultId = (resultId) => api.get(`/qa/results/${resultId}/document`);
+// QA 문서 생성
+export const createQaDocument = (data) => api.post('/qa', data);
+// QA 문서 수정
+export const updateQaDocument = (id, data) => api.put(`/qa/${id}`, data);
+export const deleteQaDocument = (id) => api.delete(`/qa/${id}`);
+// QA 상태 업데이트
+export const updateQaStatus = (resultId, data) => api.put(`/qa/results/${resultId}/status`, data);
+// 코멘트
+export const getQaComments = (resultId) => api.get(`/qa/results/${resultId}/comments`);
+export const createQaComment = (resultId, data) => api.post(`/qa/results/${resultId}/comments`, data);
+
+// ==================== QA 파일 관리 (QA File Management) ====================
+
+/**
+ * 파일 업로드 및 저장
+ * 엑셀 파일(xlsx, xls, csv)을 업로드하고 HTML로 변환하여 DB에 저장
+ * 
+ * @param {File} file - 업로드할 엑셀 파일
+ * @param {Object} config - 추가 설정 옵션 (headers 등)
+ * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
+ *   - id: 파일 ID
+ *   - fileName: 파일명
+ *   - fileSize: 파일 크기
+ *   - fileType: 파일 타입
+ *   - sheets: 시트 정보 배열
+ * 
+ * @throws {Error} 파일이 없거나 지원하지 않는 형식인 경우
+ * 
+ * @example
+ * const file = document.querySelector('input[type="file"]').files[0];
+ * const response = await uploadQaFile(file);
+ * console.log(response.data.sheets); // [{ sheetName, htmlContent }, ...]
+ */
+export const uploadQaFile = (file, config = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+  }
+
+  // FormData 생성 (multipart/form-data 형식)
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data', // 파일 업로드를 위한 Content-Type
+  };
+
+  return api.post('/qa/upload', formData, {
+    ...config,
+    headers,
+  });
+};
+
+/**
+ * 파일 목록 조회
+ * 업로드된 모든 파일의 목록을 조회 (업로드 시간 내림차순)
+ * 
+ * @returns {Promise<AxiosResponse>} 파일 목록 배열
+ *   각 파일 객체: { id, fileName, fileSize, fileType, feedback, uploadedAt }
+ * 
+ * @example
+ * const response = await getQaFiles();
+ * const files = response.data; // [{ id: 1, fileName: "example.xlsx", ... }, ...]
+ */
+export const getQaFiles = () => api.get('/qa/files');
+
+/**
+ * 파일 상세 조회
+ * 특정 파일의 상세 정보와 모든 시트의 HTML 내용을 조회
+ * 
+ * @param {number} id - 파일 ID
+ * @returns {Promise<AxiosResponse>} 파일 상세 정보
+ *   - id, fileName, fileSize, fileType, feedback
+ *   - sheets: [{ id, sheetName, sheetOrder, htmlContent }, ...]
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const getQaFileDetail = (id) => api.get(`/qa/files/${id}`);
+
+/**
+ * 피드백 저장
+ * 파일의 확인 사항(피드백)을 저장
+ * 
+ * @param {number} id - 파일 ID
+ * @param {string} feedback - 피드백 내용
+ * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
+ * 
+ * @throws {Error} 피드백이 비어있으면 400 에러, 파일을 찾을 수 없으면 404 에러
+ */
+export const saveQaFileFeedback = (id, feedback) => 
+  api.put(`/qa/files/${id}/feedback`, { feedback });
+
+/**
+ * JSONL 변환
+ * 수정된 HTML을 JSONL 형식으로 변환하여 다운로드
+ * 
+ * @param {Object} data - 변환할 데이터
+ *   - fileName: 파일명
+ *   - sheets: [{ sheetName, htmlContent, imageBase64 }, ...]
+ * @returns {Promise<AxiosResponse>} JSONL 파일 (Blob)
+ * 
+ * 응답 형식:
+ * - Content-Type: application/octet-stream
+ * - Body: JSONL 파일 바이너리
+ * 
+ * JSONL 형식: 각 줄은 {"image":"", "html":"<table>...</table>"} 형식
+ */
+export const convertQaFileToJsonl = (data) => 
+  api.post('/qa/convert/jsonl', data, { responseType: 'blob' });
+
+/**
+ * 편집된 시트 저장
+ * 수정된 HTML 내용을 서버에 저장
+ * 
+ * @param {number} id - 파일 ID
+ * @param {Array} sheets - 저장할 시트 배열 [{ id, htmlContent }, ...]
+ * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const saveQaFileSheets = (id, sheets) => 
+  api.put(`/qa/files/${id}/sheets`, { sheets });
+
+/**
+ * 파일 삭제
+ * 
+ * @param {number} id - 파일 ID
+ * @returns {Promise<AxiosResponse>} 삭제 성공 응답
+ * 
+ * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ */
+export const deleteQaFile = (id) => 
+  api.delete(`/qa/files/${id}`);
 
 export default api;
 
