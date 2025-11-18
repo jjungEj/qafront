@@ -1,3 +1,15 @@
+/**
+* @ClassName	: QA.js
+* @Description	: QA 파일 관리 페이지, 파일 목록 조회, 업로드, 삭제 기능 제공
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - QA 파일 목록 조회 및 표시
+* 								- 파일 업로드 및 삭제 기능
+* 								- 파일 상세 페이지로 이동 기능
+*/
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 

@@ -1,3 +1,14 @@
+/**
+* @ClassName	: Sidebar.js
+* @Description	: 사이드바 네비게이션 컴포넌트, 메뉴 항목 표시 및 활성 상태 관리
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 메뉴 항목 라우팅 및 활성 상태 표시
+* 								- 현재 경로에 따른 활성 메뉴 하이라이트
+*/
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import './Sidebar.css';

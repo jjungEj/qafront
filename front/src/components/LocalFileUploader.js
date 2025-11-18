@@ -1,3 +1,14 @@
+/**
+* @ClassName	: LocalFileUploader.js
+* @Description	: 로컬 파일 업로드를 위한 컴포넌트, 엑셀/CSV 파일 선택 및 업로드 처리
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 파일 선택 및 업로드 기능 구현
+* 								- 업로드 중 상태 관리 및 비활성화 처리
+*/
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import './LocalFileUploader.css';

@@ -13,31 +13,18 @@ import './Page.css';
 import './QADetail.css';
 
 /**
- * QA 파일 상세 페이지 컴포넌트
- * 
- * 주요 기능:
- * 1. 파일 정보 표시 (파일명, 크기, 타입, 업로드/수정 일시)
- * 2. 피드백 입력 및 저장
- * 3. HTML 테이블 편집
- *    - 셀 선택 (드래그)
- *    - 셀 병합
- *    - Undo/Redo
- * 4. 파일 다운로드
- *    - JSONL 변환 (이미지 포함)
- *    - HTML 다운로드
- * 
- * 상태 관리:
- * - file: 현재 파일 정보 (서버에서 가져온 원본 데이터)
- * - editedSheets: 편집된 시트 데이터 (로컬 상태)
- * - history: Undo/Redo를 위한 히스토리 배열
- * - historyIndex: 현재 히스토리 인덱스
- * - selectedCells: 선택된 셀 목록 [{ sheetIndex, rowIndex, colIndex }, ...]
- * - isEditing: 편집 모드 여부
- * 
- * 라우팅:
- * - 경로: /qa/files/:id
- * - 파라미터: id (파일 ID)
- */
+* @ClassName	: QADetail.js
+* @Description	: QA 파일 상세 페이지, 파일 정보 표시, 피드백 저장, HTML 테이블 편집(셀 선택/병합/Undo-Redo), 파일 다운로드(JSONL/HTML)
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 파일 상세 정보 조회 및 표시
+* 								- 피드백 입력 및 저장 기능
+* 								- HTML 테이블 편집 기능 (셀 선택, 병합, Undo/Redo)
+* 								- JSONL 변환 및 HTML 다운로드 기능
+*/
 const QADetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();

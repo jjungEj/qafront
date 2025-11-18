@@ -1,3 +1,14 @@
+/**
+* @ClassName	: App.js
+* @Description	: React Router를 사용한 메인 애플리케이션 컴포넌트, 라우팅 설정 및 레이아웃 구성
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - React Router를 통한 페이지 라우팅 설정
+* 								- Layout 컴포넌트로 전체 페이지 구조 구성
+*/
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';

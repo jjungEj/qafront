@@ -1,3 +1,15 @@
+/**
+* @ClassName	: Notification.js
+* @Description	: 알림 메시지 컴포넌트, 자동 사라짐 기능 및 여러 알림 관리
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 알림 표시 및 자동 사라짐 기능
+* 								- 여러 알림 동시 관리 (NotificationContainer)
+* 								- 타입별 스타일링 (info, success, error, warning)
+*/
 import React, { useState, useEffect } from 'react';
 import './Notification.css';
 
