@@ -55,6 +55,9 @@ const QADetail = () => {
   const [history, setHistory] = useState([]); // undo/redo를 위한 히스토리
   const [historyIndex, setHistoryIndex] = useState(-1); // 현재 히스토리 인덱스
   const tableRefs = useRef({});
+  const historyIndexRef = useRef(historyIndex);
+  const editedSheetsRef = useRef([]);
+  const dirtySheetsRef = useRef(new Set());
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -74,11 +77,14 @@ const QADetail = () => {
       const fileData = response.data;
       setFile(fileData);
       setFeedback(fileData.feedback || '');
-      const initialSheets = fileData.sheets || [];
+      const initialSheets = JSON.parse(JSON.stringify(fileData.sheets || []));
       setEditedSheets(initialSheets);
+      editedSheetsRef.current = initialSheets;
+      dirtySheetsRef.current.clear();
       // 초기 상태를 히스토리에 저장
       setHistory([initialSheets]);
       setHistoryIndex(0);
+      historyIndexRef.current = 0;
       setActiveSheetIndex(0);
     } catch (error) {
       showNotification('파일 상세 정보를 불러오는데 실패했습니다.', 'error');
@@ -91,6 +97,14 @@ const QADetail = () => {
   useEffect(() => {
     fetchFileDetail();
   }, [fetchFileDetail]);
+
+  useEffect(() => {
+    historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
+
+  useEffect(() => {
+    editedSheetsRef.current = editedSheets;
+  }, [editedSheets]);
 
   const handleSaveFeedback = async () => {
     if (!file) return;
@@ -111,23 +125,44 @@ const QADetail = () => {
   // 셀 선택 시작
   const handleCellMouseDown = useCallback((e, sheetIndex, rowIndex, colIndex) => {
     if (!isEditing) return;
+
+    const cellElement = e.currentTarget || e.target;
+
+    if (e.detail >= 2) {
+      setIsSelecting(false);
+      setSelectedCells([]);
+      if (cellElement && cellElement.focus) {
+        cellElement.focus();
+      }
+      return;
+    }
+
+    const activeEditable = document.activeElement;
+    if (activeEditable && activeEditable.isContentEditable && activeEditable !== cellElement) {
+      activeEditable.blur();
+    }
+
     e.preventDefault();
     setIsSelecting(true);
     setSelectedCells([{ sheetIndex, rowIndex, colIndex }]);
     
     // 선택된 셀로 자동 스크롤
-    const cell = e.target;
-    if (cell && cell.scrollIntoView) {
-      cell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    if (cellElement && cellElement.scrollIntoView) {
+      cellElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
   }, [isEditing]);
 
   // 셀 선택 중
   const handleCellMouseEnter = useCallback((e, sheetIndex, rowIndex, colIndex) => {
     if (!isSelecting || !isEditing) return;
+
+    const activeEditable = document.activeElement;
+    if (activeEditable && activeEditable.isContentEditable) {
+      return;
+    }
     
     // 드래그 중인 셀로 자동 스크롤
-    const cell = e.target;
+    const cell = e.currentTarget || e.target;
     if (cell && cell.scrollIntoView) {
       cell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     }
@@ -157,12 +192,12 @@ const QADetail = () => {
   }, []);
 
   // 편집 모드일 때 테이블에 이벤트 리스너 추가
-  useEffect(() => {
-    const currentSheet = editedSheets[activeSheetIndex];
-    if (!isEditing || !currentSheet) return;
+    useEffect(() => {
+      const currentSheet = editedSheets[activeSheetIndex];
+      if (!isEditing || !currentSheet) return;
 
-    const sheetContainer = document.querySelector(`[data-sheet-name="${currentSheet.sheetName}"]`);
-    if (!sheetContainer) return;
+      const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+      if (!sheetContainer) return;
 
     const table = sheetContainer.querySelector('table');
     if (!table) return;
@@ -219,21 +254,125 @@ const QADetail = () => {
    * - Deep copy가 필요한 이유: 참조가 아닌 값 복사로 상태 독립성 보장
    * - 분기 처리: Redo 후 새로운 작업을 하면 이전 Redo 경로는 제거됨
    */
-  const saveToHistory = (newSheets) => {
-    // 현재 위치 이후의 히스토리 제거 (새로운 분기 생성)
-    const newHistory = history.slice(0, historyIndex + 1);
-    // Deep copy로 새 상태 추가 (참조가 아닌 값 복사)
-    newHistory.push(JSON.parse(JSON.stringify(newSheets)));
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  };
+  const saveToHistory = useCallback((newSheets) => {
+    setHistory(prevHistory => {
+      const truncatedHistory = prevHistory.slice(0, historyIndexRef.current + 1);
+      const snapshot = JSON.parse(JSON.stringify(newSheets));
+      const updatedHistory = [...truncatedHistory, snapshot];
+      historyIndexRef.current = updatedHistory.length - 1;
+      setHistoryIndex(historyIndexRef.current);
+      return updatedHistory;
+    });
+  }, []);
+
+  const sanitizeTableHtml = useCallback((tableElement) => {
+    if (!tableElement) return '';
+    const clonedTable = tableElement.cloneNode(true);
+    clonedTable.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
+    clonedTable.querySelectorAll('.cell-editing').forEach(cell => cell.classList.remove('cell-editing'));
+    clonedTable.querySelectorAll('[contenteditable]').forEach(cell => cell.removeAttribute('contenteditable'));
+    return clonedTable.outerHTML;
+  }, []);
+
+  const updateSheetHtmlContent = useCallback((sheetIndex, newHtml, { pushToHistory = true, force = false } = {}) => {
+    let nextSheets = null;
+    let hasChanged = false;
+
+    setEditedSheets(prevSheets => {
+      if (!Array.isArray(prevSheets) || !prevSheets[sheetIndex]) {
+        nextSheets = prevSheets;
+        return prevSheets;
+      }
+
+      if (!force && prevSheets[sheetIndex].htmlContent === newHtml) {
+        nextSheets = prevSheets;
+        return prevSheets;
+      }
+
+      hasChanged = true;
+      nextSheets = prevSheets.map((sheet, idx) =>
+        idx === sheetIndex ? { ...sheet, htmlContent: newHtml } : sheet
+      );
+      return nextSheets;
+    });
+
+    if ((hasChanged || force) && nextSheets) {
+      editedSheetsRef.current = nextSheets;
+      if (pushToHistory) {
+        saveToHistory(nextSheets);
+      }
+    }
+
+    return nextSheets;
+  }, [saveToHistory]);
+
+  const commitDirtySheets = useCallback(() => {
+    if (dirtySheetsRef.current.size === 0) {
+      return editedSheetsRef.current;
+    }
+
+    const dirtyIndexes = Array.from(dirtySheetsRef.current);
+    dirtySheetsRef.current.clear();
+    let latestSheets = editedSheetsRef.current;
+
+    dirtyIndexes.forEach(index => {
+      const sheetContainer = document.querySelector(`[data-sheet-index="${index}"]`);
+      const table = sheetContainer?.querySelector('table');
+      if (!table) return;
+      const sanitizedHtml = sanitizeTableHtml(table);
+      const updatedSheets = updateSheetHtmlContent(index, sanitizedHtml, { pushToHistory: true, force: true });
+      if (updatedSheets) {
+        latestSheets = updatedSheets;
+      }
+    });
+
+    return latestSheets;
+  }, [sanitizeTableHtml, updateSheetHtmlContent]);
+
+  const handleCellContentInput = useCallback((event) => {
+    if (!isEditing) return;
+    const cell = event.currentTarget || event.target;
+    const sheetContainer = cell.closest('[data-sheet-index]');
+    if (!sheetContainer) return;
+    const sheetIndex = Number(sheetContainer.getAttribute('data-sheet-index'));
+    if (Number.isNaN(sheetIndex)) return;
+
+    const table = cell.closest('table');
+    if (!table) return;
+
+    const sanitizedHtml = sanitizeTableHtml(table);
+    dirtySheetsRef.current.add(sheetIndex);
+    updateSheetHtmlContent(sheetIndex, sanitizedHtml, { pushToHistory: false });
+  }, [isEditing, sanitizeTableHtml, updateSheetHtmlContent]);
+
+  const handleCellContentBlur = useCallback((event) => {
+    if (!isEditing) return;
+    const cell = event.currentTarget || event.target;
+    const sheetContainer = cell.closest('[data-sheet-index]');
+    if (!sheetContainer) return;
+    const sheetIndex = Number(sheetContainer.getAttribute('data-sheet-index'));
+    if (Number.isNaN(sheetIndex)) return;
+
+    if (!dirtySheetsRef.current.has(sheetIndex)) return;
+
+    const table = cell.closest('table');
+    if (!table) return;
+
+    const sanitizedHtml = sanitizeTableHtml(table);
+    dirtySheetsRef.current.delete(sheetIndex);
+    updateSheetHtmlContent(sheetIndex, sanitizedHtml, { pushToHistory: true, force: true });
+  }, [isEditing, sanitizeTableHtml, updateSheetHtmlContent]);
 
   // Undo (뒤로가기)
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       const prevIndex = historyIndex - 1;
+      const previousState = JSON.parse(JSON.stringify(history[prevIndex]));
       setHistoryIndex(prevIndex);
-      setEditedSheets(JSON.parse(JSON.stringify(history[prevIndex]))); // deep copy
+      historyIndexRef.current = prevIndex;
+      setEditedSheets(previousState);
+      editedSheetsRef.current = previousState;
+      dirtySheetsRef.current.clear();
       setSelectedCells([]);
       showNotification('이전 상태로 되돌렸습니다.', 'success');
     } else {
@@ -245,8 +384,12 @@ const QADetail = () => {
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       const nextIndex = historyIndex + 1;
+      const nextState = JSON.parse(JSON.stringify(history[nextIndex]));
       setHistoryIndex(nextIndex);
-      setEditedSheets(JSON.parse(JSON.stringify(history[nextIndex]))); // deep copy
+      historyIndexRef.current = nextIndex;
+      setEditedSheets(nextState);
+      editedSheetsRef.current = nextState;
+      dirtySheetsRef.current.clear();
       setSelectedCells([]);
       showNotification('다음 상태로 이동했습니다.', 'success');
     } else {
@@ -338,32 +481,21 @@ const QADetail = () => {
         }
       }
     }
-    
-    // 셀 제거 실행
-    cellsToRemove.forEach(cellElement => {
-      cellElement.remove();
-    });
-    
-    // 5. 첫 번째 셀에 rowspan/colspan 설정 및 병합 정보 저장
-    firstCellElement.setAttribute('rowspan', rowSpan);
-    firstCellElement.setAttribute('colspan', colSpan);
-    firstCellElement.setAttribute('data-merge-main', 'true');
-    firstCellElement.setAttribute('data-merge-rows', rowSpan);
-    firstCellElement.setAttribute('data-merge-cols', colSpan);
-    // 원본 데이터를 JSON으로 저장 (나중에 복원 가능)
-    firstCellElement.setAttribute('data-merged-cells', JSON.stringify(mergedCellData.map(c => ({ row: c.rowIndex, col: c.colIndex, content: c.originalContent }))));
-    firstCellElement.innerHTML = mergedContent;
-
-    // 업데이트된 HTML 저장 (테이블만)
-    const updatedSheets = [...editedSheets];
-    updatedSheets[sheetIndex] = {
-      ...sheet,
-      htmlContent: table.outerHTML
-    };
-    
-    // 히스토리에 저장
-    saveToHistory(updatedSheets);
-    setEditedSheets(updatedSheets);
+      // 셀 제거 실행
+      cellsToRemove.forEach(cellElement => {
+        cellElement.remove();
+      });
+      
+      // 5. 첫 번째 셀에 rowspan/colspan 설정 및 병합 정보 저장
+      firstCellElement.setAttribute('rowspan', rowSpan);
+      firstCellElement.setAttribute('colspan', colSpan);
+      firstCellElement.setAttribute('data-merge-main', 'true');
+      firstCellElement.setAttribute('data-merge-rows', rowSpan);
+      firstCellElement.setAttribute('data-merge-cols', colSpan);
+      // 원본 데이터를 JSON으로 저장 (나중에 복원 가능)
+      firstCellElement.setAttribute('data-merged-cells', JSON.stringify(mergedCellData.map(c => ({ row: c.rowIndex, col: c.colIndex, content: c.originalContent }))));
+      firstCellElement.innerHTML = mergedContent;
+      updateSheetHtmlContent(sheetIndex, table.outerHTML);
     setSelectedCells([]);
     showNotification('셀이 병합되었습니다.', 'success');
   };
@@ -380,10 +512,13 @@ const QADetail = () => {
       return;
     }
     
-    const originalSheets = file.sheets || [];
-    setEditedSheets(JSON.parse(JSON.stringify(originalSheets))); // deep copy
-    setHistory([JSON.parse(JSON.stringify(originalSheets))]);
-    setHistoryIndex(0);
+      const originalSheets = JSON.parse(JSON.stringify(file.sheets || []));
+      setEditedSheets(originalSheets); // deep copy
+      editedSheetsRef.current = originalSheets;
+      dirtySheetsRef.current.clear();
+      setHistory([originalSheets]);
+      setHistoryIndex(0);
+      historyIndexRef.current = 0;
     setSelectedCells([]);
     showNotification('초기 상태로 되돌렸습니다.', 'success');
   };
@@ -392,13 +527,16 @@ const QADetail = () => {
    * 편집된 시트 저장
    * 수정된 HTML 내용을 서버에 저장하여 다음에 접속 시에도 유지되도록 함
    */
-  const handleSaveSheets = async () => {
-    if (!file || !editedSheets.length) return;
+    const handleSaveSheets = async () => {
+      if (!file) return;
+
+      const latestSheets = commitDirtySheets() || editedSheetsRef.current;
+      if (!latestSheets || !latestSheets.length) return;
 
     setIsSavingSheets(true);
     try {
       // 각 시트의 id와 htmlContent를 서버에 전송
-      const sheetsToSave = editedSheets.map(sheet => ({
+        const sheetsToSave = latestSheets.map(sheet => ({
         id: sheet.id,
         htmlContent: sheet.htmlContent
       }));
@@ -505,12 +643,14 @@ const QADetail = () => {
   };
 
   // HTML 파일 다운로드
-  const handleDownloadHtml = () => {
-    if (!file || !editedSheets.length) return;
+    const handleDownloadHtml = () => {
+      if (!file) return;
+      const sheetsForDownload = commitDirtySheets() || editedSheetsRef.current;
+      if (!sheetsForDownload || !sheetsForDownload.length) return;
 
     try {
       // 모든 시트를 하나의 HTML 파일로 생성
-      const sheetsHtml = editedSheets.map((sheet, index) => {
+        const sheetsHtml = sheetsForDownload.map((sheet, index) => {
         return `
     <div class="sheet-section">
         <h2>${sheet.sheetName || `Sheet${index + 1}`}</h2>
@@ -620,8 +760,10 @@ const QADetail = () => {
    * - 진행 상황 표시: 사용자에게 진행 상황 알림
    * - 에러 처리: 하나의 시트 변환 실패 시에도 나머지 계속 진행
    */
-  const handleConvertToJsonl = async () => {
-    if (!file) return;
+    const handleConvertToJsonl = async () => {
+      if (!file) return;
+      const sheetsForExport = commitDirtySheets() || editedSheetsRef.current;
+      if (!sheetsForExport || !sheetsForExport.length) return;
 
     try {
       showNotification('이미지 변환 중...', 'info');
@@ -629,9 +771,9 @@ const QADetail = () => {
       // 각 시트별로 순차적으로 이미지 변환
       // Promise.all() 대신 for 루프 사용 이유: DOM 충돌 방지
       const convertedSheets = [];
-      for (let i = 0; i < editedSheets.length; i++) {
-        const sheet = editedSheets[i];
-        showNotification(`${i + 1}/${editedSheets.length} 시트 변환 중...`, 'info');
+        for (let i = 0; i < sheetsForExport.length; i++) {
+          const sheet = sheetsForExport[i];
+          showNotification(`${i + 1}/${sheetsForExport.length} 시트 변환 중...`, 'info');
         const imageBase64 = await convertTableToImage(sheet.htmlContent, sheet.sheetName, i);
         
         convertedSheets.push({
@@ -674,12 +816,12 @@ const QADetail = () => {
   }, [selectedCells]);
 
   // 선택된 셀에 스타일 적용
-  useEffect(() => {
-    const currentSheet = editedSheets[activeSheetIndex];
-    if (!isEditing || !currentSheet) return;
+    useEffect(() => {
+      const currentSheet = editedSheets[activeSheetIndex];
+      if (!isEditing || !currentSheet) return;
 
-    const sheetContainer = document.querySelector(`[data-sheet-name="${currentSheet.sheetName}"]`);
-    if (!sheetContainer) return;
+      const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+      if (!sheetContainer) return;
 
     const table = sheetContainer.querySelector('table');
     if (!table) return;
@@ -698,6 +840,61 @@ const QADetail = () => {
       }
     });
   }, [selectedCells, isEditing, editedSheets, activeSheetIndex, isCellSelected]);
+
+  useEffect(() => {
+    const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+    if (!sheetContainer) return;
+
+    const table = sheetContainer.querySelector('table');
+    if (!table) return;
+
+    const cells = table.querySelectorAll('td, th');
+
+    if (!isEditing) {
+      cells.forEach(cell => {
+        cell.removeAttribute('contenteditable');
+        cell.classList.remove('cell-editing');
+      });
+      return;
+    }
+
+    const inputHandlers = [];
+    const blurHandlers = [];
+    const focusHandlers = [];
+
+    cells.forEach((cell) => {
+      cell.setAttribute('contenteditable', 'true');
+
+      const inputHandler = (event) => handleCellContentInput(event);
+      const blurHandler = (event) => {
+        cell.classList.remove('cell-editing');
+        handleCellContentBlur(event);
+      };
+      const focusHandler = () => {
+        setIsSelecting(false);
+        setSelectedCells([]);
+        cell.classList.add('cell-editing');
+      };
+
+      cell.addEventListener('input', inputHandler);
+      cell.addEventListener('blur', blurHandler);
+      cell.addEventListener('focus', focusHandler);
+
+      inputHandlers.push({ cell, handler: inputHandler });
+      blurHandlers.push({ cell, handler: blurHandler });
+      focusHandlers.push({ cell, handler: focusHandler });
+    });
+
+    return () => {
+      inputHandlers.forEach(({ cell, handler }) => cell.removeEventListener('input', handler));
+      blurHandlers.forEach(({ cell, handler }) => cell.removeEventListener('blur', handler));
+      focusHandlers.forEach(({ cell, handler }) => cell.removeEventListener('focus', handler));
+      cells.forEach(cell => {
+        cell.removeAttribute('contenteditable');
+        cell.classList.remove('cell-editing');
+      });
+    };
+  }, [isEditing, editedSheets, activeSheetIndex, handleCellContentInput, handleCellContentBlur]);
 
   if (loading) {
     return (
@@ -908,42 +1105,44 @@ const QADetail = () => {
                   <h4 style={{ marginTop: 0, marginBottom: '12px' }}>
                     {sheet.sheetName || `시트 ${index + 1}`}
                   </h4>
-                  {sheet.htmlContent && (
-                    <div 
-                      style={{
-                        border: '1px solid #dee2e6',
-                        borderRadius: '4px',
-                        backgroundColor: '#fff',
-                        position: 'relative',
-                        overflow: 'auto',
-                        maxHeight: '70vh',
-                        width: '100%'
-                      }}
-                      onWheel={(e) => {
-                        // 가로 스크롤 지원 (Shift + 마우스 휠)
-                        if (e.shiftKey && e.deltaY !== 0) {
-                          e.preventDefault();
-                          e.currentTarget.scrollLeft += e.deltaY;
-                        }
-                      }}
-                    >
+                    {sheet.htmlContent && (
                       <div 
-                        ref={(el) => {
-                          if (el) {
-                            tableRefs.current[sheet.sheetName] = el.querySelector('table') || el;
+                        style={{
+                          border: '1px solid #dee2e6',
+                          borderRadius: '4px',
+                          backgroundColor: '#fff',
+                          position: 'relative',
+                          overflow: 'auto',
+                          maxHeight: '70vh',
+                          width: '100%'
+                        }}
+                        onWheel={(e) => {
+                          // 가로 스크롤 지원 (Shift + 마우스 휠)
+                          if (e.shiftKey && e.deltaY !== 0) {
+                            e.preventDefault();
+                            e.currentTarget.scrollLeft += e.deltaY;
                           }
                         }}
-                        data-sheet-name={sheet.sheetName}
-                        className={`sheet-html-content ${isEditing ? 'editing-mode' : ''}`}
-                        dangerouslySetInnerHTML={{ __html: sheet.htmlContent }}
-                        style={{ 
-                          padding: '8px',
-                          minWidth: 'fit-content',
-                          display: 'inline-block'
-                        }}
-                      />
-                    </div>
-                  )}
+                      >
+                        <div 
+                          ref={(el) => {
+                            if (el) {
+                              const key = sheet.sheetName || `sheet-${index}`;
+                              tableRefs.current[key] = el.querySelector('table') || el;
+                            }
+                          }}
+                          data-sheet-name={sheet.sheetName || `sheet-${index}`}
+                          data-sheet-index={index}
+                          className={`sheet-html-content ${isEditing ? 'editing-mode' : ''}`}
+                          dangerouslySetInnerHTML={{ __html: sheet.htmlContent }}
+                          style={{ 
+                            padding: '8px',
+                            minWidth: 'fit-content',
+                            display: 'inline-block'
+                          }}
+                        />
+                      </div>
+                    )}
                 </div>
               );
             })}
