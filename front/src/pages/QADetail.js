@@ -658,74 +658,21 @@ const QADetail = () => {
     </div>`;
       }).join('');
 
-      const htmlContent = `<!DOCTYPE html>
+        const htmlContent = `<!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${file.fileName.replace(/\.[^/.]+$/, '')}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #34495e;
-            padding-bottom: 10px;
-        }
-        .sheet-section {
-            margin-bottom: 40px;
-            page-break-after: always;
-        }
-        .sheet-section:last-child {
-            margin-bottom: 0;
-            page-break-after: auto;
-        }
-        .sheet-section h2 {
-            color: #34495e;
-            margin-bottom: 20px;
-            padding: 10px;
-            background-color: #ecf0f1;
-            border-left: 4px solid #34495e;
-        }
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 10px;
-        }
-        table th, table td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        table th {
-            background-color: #f2f2f2;
-            font-weight: bold;
-        }
-        @media print {
-            .sheet-section {
-                page-break-after: always;
-            }
-            .sheet-section:last-child {
-                page-break-after: auto;
-            }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${file.fileName.replace(/\.[^/.]+$/, '')}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 32px; }
+    h2 { margin-top: 30px; margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #000000; padding: 6px 8px; text-align: left; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>${file.fileName.replace(/\.[^/.]+$/, '')}</h1>
-        ${sheetsHtml}
-    </div>
+  ${sheetsHtml}
 </body>
 </html>`;
 
