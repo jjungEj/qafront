@@ -56,8 +56,9 @@ const QADetail = () => {
   const [historyIndex, setHistoryIndex] = useState(-1); // 현재 히스토리 인덱스
   const tableRefs = useRef({});
   const historyIndexRef = useRef(historyIndex);
-  const editedSheetsRef = useRef([]);
-  const dirtySheetsRef = useRef(new Set());
+    const editedSheetsRef = useRef([]);
+    const dirtySheetsRef = useRef(new Set());
+    const editingCellRef = useRef(null);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -329,21 +330,16 @@ const QADetail = () => {
     return latestSheets;
   }, [sanitizeTableHtml, updateSheetHtmlContent]);
 
-  const handleCellContentInput = useCallback((event) => {
-    if (!isEditing) return;
-    const cell = event.currentTarget || event.target;
-    const sheetContainer = cell.closest('[data-sheet-index]');
-    if (!sheetContainer) return;
-    const sheetIndex = Number(sheetContainer.getAttribute('data-sheet-index'));
-    if (Number.isNaN(sheetIndex)) return;
+    const handleCellContentInput = useCallback((event) => {
+      if (!isEditing) return;
+      const cell = event.currentTarget || event.target;
+      const sheetContainer = cell.closest('[data-sheet-index]');
+      if (!sheetContainer) return;
+      const sheetIndex = Number(sheetContainer.getAttribute('data-sheet-index'));
+      if (Number.isNaN(sheetIndex)) return;
 
-    const table = cell.closest('table');
-    if (!table) return;
-
-    const sanitizedHtml = sanitizeTableHtml(table);
-    dirtySheetsRef.current.add(sheetIndex);
-    updateSheetHtmlContent(sheetIndex, sanitizedHtml, { pushToHistory: false });
-  }, [isEditing, sanitizeTableHtml, updateSheetHtmlContent]);
+      dirtySheetsRef.current.add(sheetIndex);
+    }, [isEditing]);
 
   const handleCellContentBlur = useCallback((event) => {
     if (!isEditing) return;
@@ -788,60 +784,131 @@ const QADetail = () => {
     });
   }, [selectedCells, isEditing, editedSheets, activeSheetIndex, isCellSelected]);
 
-  useEffect(() => {
-    const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
-    if (!sheetContainer) return;
+    useEffect(() => {
+      const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+      if (!sheetContainer) {
+        editingCellRef.current = null;
+        return;
+      }
 
-    const table = sheetContainer.querySelector('table');
-    if (!table) return;
+      const table = sheetContainer.querySelector('table');
+      if (!table) {
+        editingCellRef.current = null;
+        return;
+      }
 
-    const cells = table.querySelectorAll('td, th');
+      const cells = table.querySelectorAll('td, th');
 
-    if (!isEditing) {
-      cells.forEach(cell => {
-        cell.removeAttribute('contenteditable');
-        cell.classList.remove('cell-editing');
-      });
-      return;
-    }
+      if (!isEditing) {
+        if (editingCellRef.current) {
+          editingCellRef.current.removeAttribute('contenteditable');
+          editingCellRef.current.classList.remove('cell-editing');
+          editingCellRef.current = null;
+        }
+        cells.forEach(cell => {
+          cell.removeAttribute('contenteditable');
+          cell.classList.remove('cell-editing');
+        });
+        return;
+      }
 
-    const inputHandlers = [];
-    const blurHandlers = [];
-    const focusHandlers = [];
+      const eventBindings = [];
 
-    cells.forEach((cell) => {
-      cell.setAttribute('contenteditable', 'true');
-
-      const inputHandler = (event) => handleCellContentInput(event);
-      const blurHandler = (event) => {
-        cell.classList.remove('cell-editing');
-        handleCellContentBlur(event);
+      const beginEditing = (cell) => {
+        if (!cell) return;
+        if (editingCellRef.current && editingCellRef.current !== cell) {
+          editingCellRef.current.removeAttribute('contenteditable');
+          editingCellRef.current.classList.remove('cell-editing');
+        }
+        editingCellRef.current = cell;
+        cell.setAttribute('contenteditable', 'true');
+        cell.classList.add('cell-editing');
+        requestAnimationFrame(() => {
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(cell);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          } catch (err) {
+            // noop
+          }
+        });
+        cell.focus();
       };
-      const focusHandler = () => {
+
+      const endEditing = (cell) => {
+        if (!cell) return;
+        cell.classList.remove('cell-editing');
+        cell.removeAttribute('contenteditable');
+        if (editingCellRef.current === cell) {
+          editingCellRef.current = null;
+        }
+      };
+
+      const createDblClickHandler = (cell) => (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         setIsSelecting(false);
         setSelectedCells([]);
-        cell.classList.add('cell-editing');
+        beginEditing(cell);
       };
 
-      cell.addEventListener('input', inputHandler);
-      cell.addEventListener('blur', blurHandler);
-      cell.addEventListener('focus', focusHandler);
+      const createBlurHandler = (cell) => (event) => {
+        endEditing(cell);
+        handleCellContentBlur(event);
+      };
 
-      inputHandlers.push({ cell, handler: inputHandler });
-      blurHandlers.push({ cell, handler: blurHandler });
-      focusHandlers.push({ cell, handler: focusHandler });
-    });
+      const createKeyDownHandler = (cell) => (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          cell.blur();
+        }
+      };
 
-    return () => {
-      inputHandlers.forEach(({ cell, handler }) => cell.removeEventListener('input', handler));
-      blurHandlers.forEach(({ cell, handler }) => cell.removeEventListener('blur', handler));
-      focusHandlers.forEach(({ cell, handler }) => cell.removeEventListener('focus', handler));
-      cells.forEach(cell => {
-        cell.removeAttribute('contenteditable');
-        cell.classList.remove('cell-editing');
+      const createInputHandler = (cell) => (event) => {
+        handleCellContentInput(event);
+      };
+
+      cells.forEach((cell) => {
+        const dblHandler = createDblClickHandler(cell);
+        const blurHandler = createBlurHandler(cell);
+        const keyDownHandler = createKeyDownHandler(cell);
+        const inputHandler = createInputHandler(cell);
+
+        cell.addEventListener('dblclick', dblHandler);
+        cell.addEventListener('blur', blurHandler);
+        cell.addEventListener('keydown', keyDownHandler);
+        cell.addEventListener('input', inputHandler);
+
+        eventBindings.push(
+          { cell, type: 'dblclick', handler: dblHandler },
+          { cell, type: 'blur', handler: blurHandler },
+          { cell, type: 'keydown', handler: keyDownHandler },
+          { cell, type: 'input', handler: inputHandler },
+        );
       });
-    };
-  }, [isEditing, editedSheets, activeSheetIndex, handleCellContentInput, handleCellContentBlur]);
+
+      return () => {
+        eventBindings.forEach(({ cell, type, handler }) => {
+          cell.removeEventListener(type, handler);
+        });
+        cells.forEach(cell => {
+          cell.removeAttribute('contenteditable');
+          cell.classList.remove('cell-editing');
+        });
+        editingCellRef.current = null;
+      };
+    }, [
+      isEditing,
+      editedSheets,
+      activeSheetIndex,
+      handleCellContentInput,
+      handleCellContentBlur,
+      setIsSelecting,
+      setSelectedCells
+    ]);
 
   if (loading) {
     return (
