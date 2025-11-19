@@ -214,6 +214,32 @@ export const uploadQaFile = (file, config = {}) => {
 };
 
 /**
+ * HTML 파일 업로드
+ * 
+ * @param {File} file - 업로드할 HTML 파일 (.html, .htm)
+ * @param {Object} config - 추가 설정 옵션
+ * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
+ */
+export const uploadQaHtmlFile = (file, config = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data',
+  };
+
+  return api.post('/qa/upload/html', formData, {
+    ...config,
+    headers,
+  });
+};
+
+/**
  * 파일 목록 조회
  * 업로드된 모든 파일의 목록을 조회 (업로드 시간 내림차순)
  * 
