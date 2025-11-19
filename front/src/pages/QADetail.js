@@ -12,6 +12,67 @@ import { NotificationContainer } from '../components/Notification';
 import './Page.css';
 import './QADetail.css';
 
+const buildTableCellMaps = (tableElement, { assignDataset = false } = {}) => {
+  if (!tableElement) {
+    return {
+      coordinateMap: new Map(),
+      cellMetaMap: new Map(),
+      matrix: []
+    };
+  }
+
+  const rows = Array.from(tableElement.querySelectorAll('tr'));
+  const matrix = [];
+  const coordinateMap = new Map();
+  const cellMetaMap = new Map();
+
+  rows.forEach((row, rowIndex) => {
+    matrix[rowIndex] = matrix[rowIndex] || [];
+    let colPointer = 0;
+
+    Array.from(row.cells).forEach((cell) => {
+      while (matrix[rowIndex][colPointer]) {
+        colPointer++;
+      }
+
+      const rowspan = parseInt(cell.getAttribute('rowspan') || '1', 10);
+      const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+
+      for (let r = 0; r < rowspan; r++) {
+        const targetRow = rowIndex + r;
+        matrix[targetRow] = matrix[targetRow] || [];
+        for (let c = 0; c < colspan; c++) {
+          matrix[targetRow][colPointer + c] = cell;
+        }
+      }
+
+      const meta = {
+        rowIndex,
+        colIndex: colPointer,
+        rowspan,
+        colspan
+      };
+
+      coordinateMap.set(cell, { rowIndex, colIndex: colPointer });
+      cellMetaMap.set(cell, meta);
+
+      if (assignDataset && cell.dataset) {
+        cell.dataset.rowIndex = String(rowIndex);
+        cell.dataset.colIndex = String(colPointer);
+      }
+
+      colPointer += colspan;
+    });
+  });
+
+  return { coordinateMap, cellMetaMap, matrix };
+};
+
+const findCellByCoordinates = (matrix, rowIndex, colIndex) => {
+  if (rowIndex < 0 || colIndex < 0) return null;
+  return matrix[rowIndex]?.[colIndex] || null;
+};
+
 /**
 * @ClassName	: QADetail.js
 * @Description	: QA 파일 상세 페이지, 파일 정보 표시, 피드백 저장, HTML 테이블 편집(셀 선택/병합/Undo-Redo), 파일 다운로드(JSONL/HTML)
@@ -179,54 +240,57 @@ const QADetail = () => {
     setIsSelecting(false);
   }, []);
 
-  // 편집 모드일 때 테이블에 이벤트 리스너 추가
+    // 편집 모드일 때 테이블에 이벤트 리스너 추가
     useEffect(() => {
-      const currentSheet = editedSheets[activeSheetIndex];
-      if (!isEditing || !currentSheet) return;
+        const currentSheet = editedSheets[activeSheetIndex];
+        if (!isEditing || !currentSheet) return;
 
-      const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
-      if (!sheetContainer) return;
+        const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+        if (!sheetContainer) return;
 
-    const table = sheetContainer.querySelector('table');
-    if (!table) return;
+      const table = sheetContainer.querySelector('table');
+      if (!table) return;
 
-    const cells = table.querySelectorAll('td, th');
-    
-    const mouseDownHandlers = [];
-    const mouseEnterHandlers = [];
-    const mouseUpHandler = () => handleCellMouseUp();
-
-    cells.forEach((cell) => {
-      const row = cell.parentElement;
-      const rowIndex = Array.from(row.parentElement.children).indexOf(row);
-      const colIndex = Array.from(row.children).indexOf(cell);
+      const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true });
+      const cells = table.querySelectorAll('td, th');
       
-      const mouseDownHandler = (e) => {
-        handleCellMouseDown(e, activeSheetIndex, rowIndex, colIndex);
-      };
-      
-      const mouseEnterHandler = (e) => {
-        handleCellMouseEnter(e, activeSheetIndex, rowIndex, colIndex);
-      };
+      const mouseDownHandlers = [];
+      const mouseEnterHandlers = [];
+      const mouseUpHandler = () => handleCellMouseUp();
 
-      cell.addEventListener('mousedown', mouseDownHandler);
-      cell.addEventListener('mouseenter', mouseEnterHandler);
-      mouseDownHandlers.push({ cell, handler: mouseDownHandler });
-      mouseEnterHandlers.push({ cell, handler: mouseEnterHandler });
-    });
+      cells.forEach((cell) => {
+        const position = coordinateMap.get(cell);
+        if (!position) {
+          return;
+        }
+        const { rowIndex, colIndex } = position;
+        
+        const mouseDownHandler = (e) => {
+          handleCellMouseDown(e, activeSheetIndex, rowIndex, colIndex);
+        };
+        
+        const mouseEnterHandler = (e) => {
+          handleCellMouseEnter(e, activeSheetIndex, rowIndex, colIndex);
+        };
 
-    document.addEventListener('mouseup', mouseUpHandler);
-
-    return () => {
-      mouseDownHandlers.forEach(({ cell, handler }) => {
-        cell.removeEventListener('mousedown', handler);
+        cell.addEventListener('mousedown', mouseDownHandler);
+        cell.addEventListener('mouseenter', mouseEnterHandler);
+        mouseDownHandlers.push({ cell, handler: mouseDownHandler });
+        mouseEnterHandlers.push({ cell, handler: mouseEnterHandler });
       });
-      mouseEnterHandlers.forEach(({ cell, handler }) => {
-        cell.removeEventListener('mouseenter', handler);
-      });
-      document.removeEventListener('mouseup', mouseUpHandler);
-    };
-  }, [isEditing, editedSheets, activeSheetIndex, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp]);
+
+      document.addEventListener('mouseup', mouseUpHandler);
+
+      return () => {
+        mouseDownHandlers.forEach(({ cell, handler }) => {
+          cell.removeEventListener('mousedown', handler);
+        });
+        mouseEnterHandlers.forEach(({ cell, handler }) => {
+          cell.removeEventListener('mouseenter', handler);
+        });
+        document.removeEventListener('mouseup', mouseUpHandler);
+      };
+    }, [isEditing, editedSheets, activeSheetIndex, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp]);
 
   /**
    * 히스토리에 상태 저장
@@ -395,93 +459,132 @@ const QADetail = () => {
    * - 역순 제거가 필요한 이유: DOM에서 셀을 제거하면 인덱스가 변경됨
    * - 원본 데이터 보존: 나중에 병합 해제 시 복원 가능
    */
-  const handleMergeCells = () => {
-    if (selectedCells.length < 2) {
-      showNotification('병합할 셀을 2개 이상 선택해주세요.', 'warning');
-      return;
-    }
-
-    const sheetIndex = selectedCells[0].sheetIndex;
-    const sheet = editedSheets[sheetIndex];
-    if (!sheet) return;
-
-    // HTML 파싱
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(sheet.htmlContent, 'text/html');
-    const table = doc.querySelector('table');
-    
-    if (!table) return;
-
-    // 1. 선택된 셀들을 정렬 (행, 열 순서대로)
-    // 정렬이 필요한 이유: 병합 영역을 정확히 계산하기 위해
-    const sortedCells = [...selectedCells].sort((a, b) => {
-      if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex;
-      return a.colIndex - b.colIndex;
-    });
-
-    const firstCell = sortedCells[0];
-    const firstRow = table.rows[firstCell.rowIndex];
-    const firstCellElement = firstRow.cells[firstCell.colIndex];
-
-    // 2. 첫 번째 셀의 내용을 합치기
-    let mergedContent = firstCellElement.innerHTML.trim();
-    const mergedCellData = []; // 병합된 셀들의 원본 데이터 저장 (복원용)
-    
-    // 병합할 셀들의 원본 데이터 수집
-    for (let i = 1; i < sortedCells.length; i++) {
-      const cell = sortedCells[i];
-      const row = table.rows[cell.rowIndex];
-      const cellElement = row.cells[cell.colIndex];
-      if (cellElement && cellElement !== firstCellElement) {
-        const cellContent = cellElement.innerHTML.trim();
-        if (cellContent) {
-          mergedContent += (mergedContent ? ' ' : '') + cellContent;
-        }
-        // 원본 내용 저장 (나중에 복원 가능하도록)
-        const originalContent = cellElement.innerHTML;
-        mergedCellData.push({
-          rowIndex: cell.rowIndex,
-          colIndex: cell.colIndex,
-          originalContent: originalContent
-        });
+    const handleMergeCells = () => {
+      if (selectedCells.length < 2) {
+        showNotification('병합할 셀을 2개 이상 선택해주세요.', 'warning');
+        return;
       }
-    }
 
-    // 3. rowspan/colspan 계산
-    const rowSpan = Math.max(...sortedCells.map(c => c.rowIndex)) - Math.min(...sortedCells.map(c => c.rowIndex)) + 1;
-    const colSpan = Math.max(...sortedCells.map(c => c.colIndex)) - Math.min(...sortedCells.map(c => c.colIndex)) + 1;
-    
-    // 4. 병합된 셀들을 역순으로 제거
-    // 역순이 필요한 이유: DOM에서 셀을 제거하면 인덱스가 변경되어 앞에서부터 제거하면 오류 발생
-    const cellsToRemove = [];
-    for (let i = sortedCells.length - 1; i > 0; i--) {
-      const cell = sortedCells[i];
-      const row = table.rows[cell.rowIndex];
-      if (row) {
-        const cellElement = row.cells[cell.colIndex];
-        if (cellElement && cellElement !== firstCellElement) {
-          cellsToRemove.push(cellElement);
-        }
-      }
-    }
-      // 셀 제거 실행
-      cellsToRemove.forEach(cellElement => {
-        cellElement.remove();
+      const sortedCells = [...selectedCells].sort((a, b) => {
+        if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex;
+        if (a.colIndex !== b.colIndex) return a.colIndex - b.colIndex;
+        return 0;
       });
+
+      const sheetIndex = sortedCells[0].sheetIndex;
+      const sheet = editedSheets[sheetIndex];
+      if (!sheet) return;
+
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(sheet.htmlContent, 'text/html');
+      const table = doc.querySelector('table');
       
-      // 5. 첫 번째 셀에 rowspan/colspan 설정 및 병합 정보 저장
-      firstCellElement.setAttribute('rowspan', rowSpan);
-      firstCellElement.setAttribute('colspan', colSpan);
-      firstCellElement.setAttribute('data-merge-main', 'true');
-      firstCellElement.setAttribute('data-merge-rows', rowSpan);
-      firstCellElement.setAttribute('data-merge-cols', colSpan);
-      // 원본 데이터를 JSON으로 저장 (나중에 복원 가능)
-      firstCellElement.setAttribute('data-merged-cells', JSON.stringify(mergedCellData.map(c => ({ row: c.rowIndex, col: c.colIndex, content: c.originalContent }))));
-      firstCellElement.innerHTML = mergedContent;
+      if (!table) return;
+
+      const { matrix, cellMetaMap } = buildTableCellMaps(table);
+
+      const rowValues = sortedCells.map(cell => cell.rowIndex);
+      const colValues = sortedCells.map(cell => cell.colIndex);
+      const minRow = Math.min(...rowValues);
+      const maxRow = Math.max(...rowValues);
+      const minCol = Math.min(...colValues);
+      const maxCol = Math.max(...colValues);
+
+      const selectedCellSet = new Set();
+      for (const cellPosition of sortedCells) {
+        if (cellPosition.sheetIndex !== sheetIndex) {
+          showNotification('서로 다른 시트의 셀은 함께 병합할 수 없습니다.', 'warning');
+          return;
+        }
+
+        const cellElement = findCellByCoordinates(matrix, cellPosition.rowIndex, cellPosition.colIndex);
+        if (!cellElement) {
+          showNotification('선택한 영역을 해석할 수 없습니다.', 'error');
+          return;
+        }
+        selectedCellSet.add(cellElement);
+      }
+
+      if (selectedCellSet.size < 2) {
+        showNotification('병합할 셀을 2개 이상 선택해주세요.', 'warning');
+        return;
+      }
+
+      for (const cellElement of selectedCellSet) {
+        const meta = cellMetaMap.get(cellElement);
+        if (!meta) continue;
+        const { rowIndex, colIndex, rowspan, colspan } = meta;
+        const bottomRow = rowIndex + rowspan - 1;
+        const rightCol = colIndex + colspan - 1;
+        if (rowIndex < minRow || colIndex < minCol || bottomRow > maxRow || rightCol > maxCol) {
+          showNotification('연속된 직사각형 영역만 병합할 수 있습니다.', 'warning');
+          return;
+        }
+      }
+
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          const occupant = findCellByCoordinates(matrix, r, c);
+          if (!occupant || !selectedCellSet.has(occupant)) {
+            showNotification('선택된 영역에 비어 있는 셀이 포함되어 병합할 수 없습니다.', 'warning');
+            return;
+          }
+        }
+      }
+
+        const mainCellElement = findCellByCoordinates(matrix, minRow, minCol);
+        if (!mainCellElement || !selectedCellSet.has(mainCellElement)) {
+          showNotification('병합 기준 셀을 찾을 수 없습니다.', 'error');
+          return;
+        }
+
+      const contentPieces = [];
+      const mergedCellDetails = [];
+      const processedCells = new Set();
+
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          const occupant = findCellByCoordinates(matrix, r, c);
+          if (!occupant || processedCells.has(occupant) || !selectedCellSet.has(occupant)) {
+            continue;
+          }
+          const meta = cellMetaMap.get(occupant);
+          if (occupant !== mainCellElement && meta) {
+            mergedCellDetails.push({
+              row: meta.rowIndex,
+              col: meta.colIndex,
+              content: occupant.innerHTML
+            });
+          }
+          const cellContent = occupant.innerHTML.trim();
+          if (cellContent) {
+            contentPieces.push(cellContent);
+          }
+          processedCells.add(occupant);
+        }
+      }
+
+      const mergedContent = contentPieces.join(' ').trim();
+      const rowSpan = maxRow - minRow + 1;
+      const colSpan = maxCol - minCol + 1;
+
+      const cellsToRemove = Array.from(selectedCellSet).filter(cell => cell !== mainCellElement);
+      cellsToRemove.forEach(cell => cell.remove());
+
+      mainCellElement.setAttribute('rowspan', rowSpan);
+      mainCellElement.setAttribute('colspan', colSpan);
+      mainCellElement.setAttribute('data-merge-main', 'true');
+      mainCellElement.setAttribute('data-merge-rows', rowSpan);
+      mainCellElement.setAttribute('data-merge-cols', colSpan);
+      mainCellElement.setAttribute('data-merged-cells', JSON.stringify(mergedCellDetails));
+      if (mergedContent) {
+        mainCellElement.innerHTML = mergedContent;
+      }
+
       updateSheetHtmlContent(sheetIndex, table.outerHTML);
-    setSelectedCells([]);
-    showNotification('셀이 병합되었습니다.', 'success');
-  };
+      setSelectedCells([]);
+      showNotification('셀이 병합되었습니다.', 'success');
+    };
 
   // 편집 모드 토글
   const toggleEditMode = () => {
@@ -745,31 +848,32 @@ const QADetail = () => {
     );
   }, [selectedCells]);
 
-  // 선택된 셀에 스타일 적용
-    useEffect(() => {
-      const currentSheet = editedSheets[activeSheetIndex];
-      if (!isEditing || !currentSheet) return;
+    // 선택된 셀에 스타일 적용
+      useEffect(() => {
+        const currentSheet = editedSheets[activeSheetIndex];
+        if (!isEditing || !currentSheet) return;
 
-      const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
-      if (!sheetContainer) return;
+        const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
+        if (!sheetContainer) return;
 
-    const table = sheetContainer.querySelector('table');
-    if (!table) return;
+      const table = sheetContainer.querySelector('table');
+      if (!table) return;
 
-    const cells = table.querySelectorAll('td, th');
-    
-    cells.forEach((cell) => {
-      const row = cell.parentElement;
-      const rowIndex = Array.from(row.parentElement.children).indexOf(row);
-      const colIndex = Array.from(row.children).indexOf(cell);
+      const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true });
+      const cells = table.querySelectorAll('td, th');
       
-      if (isCellSelected(activeSheetIndex, rowIndex, colIndex)) {
-        cell.classList.add('selected');
-      } else {
-        cell.classList.remove('selected');
-      }
-    });
-  }, [selectedCells, isEditing, editedSheets, activeSheetIndex, isCellSelected]);
+      cells.forEach((cell) => {
+        const position = coordinateMap.get(cell);
+        if (!position) return;
+        const { rowIndex, colIndex } = position;
+        
+        if (isCellSelected(activeSheetIndex, rowIndex, colIndex)) {
+          cell.classList.add('selected');
+        } else {
+          cell.classList.remove('selected');
+        }
+      });
+    }, [selectedCells, isEditing, editedSheets, activeSheetIndex, isCellSelected]);
 
     useEffect(() => {
       const sheetContainer = document.querySelector(`[data-sheet-index="${activeSheetIndex}"]`);
