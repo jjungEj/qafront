@@ -504,44 +504,51 @@ const QADetail = () => {
 
       const { matrix, cellMetaMap } = buildTableCellMaps(table);
 
-      const rowValues = sortedCells.map(cell => cell.rowIndex);
-      const colValues = sortedCells.map(cell => cell.colIndex);
-      const minRow = Math.min(...rowValues);
-      const maxRow = Math.max(...rowValues);
-      const minCol = Math.min(...colValues);
-      const maxCol = Math.max(...colValues);
+        const selectedCellSet = new Set();
+        for (const cellPosition of sortedCells) {
+          if (cellPosition.sheetIndex !== sheetIndex) {
+            showNotification('서로 다른 시트의 셀은 함께 병합할 수 없습니다.', 'warning');
+            return;
+          }
 
-      const selectedCellSet = new Set();
-      for (const cellPosition of sortedCells) {
-        if (cellPosition.sheetIndex !== sheetIndex) {
-          showNotification('서로 다른 시트의 셀은 함께 병합할 수 없습니다.', 'warning');
+          const cellElement = findCellByCoordinates(matrix, cellPosition.rowIndex, cellPosition.colIndex);
+          if (!cellElement) {
+            showNotification('선택한 영역을 해석할 수 없습니다.', 'error');
+            return;
+          }
+          selectedCellSet.add(cellElement);
+        }
+
+        if (selectedCellSet.size < 2) {
+          showNotification('병합할 셀을 2개 이상 선택해주세요.', 'warning');
           return;
         }
 
-        const cellElement = findCellByCoordinates(matrix, cellPosition.rowIndex, cellPosition.colIndex);
-        if (!cellElement) {
+        let minRow = Infinity;
+        let maxRow = -Infinity;
+        let minCol = Infinity;
+        let maxCol = -Infinity;
+
+        for (const cellElement of selectedCellSet) {
+          const meta = cellMetaMap.get(cellElement);
+          if (!meta) {
+            showNotification('선택한 셀 정보를 확인할 수 없습니다.', 'error');
+            return;
+          }
+          const { rowIndex, colIndex, rowspan = 1, colspan = 1 } = meta;
+          const bottomRow = rowIndex + rowspan - 1;
+          const rightCol = colIndex + colspan - 1;
+
+          minRow = Math.min(minRow, rowIndex);
+          minCol = Math.min(minCol, colIndex);
+          maxRow = Math.max(maxRow, bottomRow);
+          maxCol = Math.max(maxCol, rightCol);
+        }
+
+        if (!Number.isFinite(minRow) || !Number.isFinite(maxRow) || !Number.isFinite(minCol) || !Number.isFinite(maxCol)) {
           showNotification('선택한 영역을 해석할 수 없습니다.', 'error');
           return;
         }
-        selectedCellSet.add(cellElement);
-      }
-
-      if (selectedCellSet.size < 2) {
-        showNotification('병합할 셀을 2개 이상 선택해주세요.', 'warning');
-        return;
-      }
-
-      for (const cellElement of selectedCellSet) {
-        const meta = cellMetaMap.get(cellElement);
-        if (!meta) continue;
-        const { rowIndex, colIndex, rowspan, colspan } = meta;
-        const bottomRow = rowIndex + rowspan - 1;
-        const rightCol = colIndex + colspan - 1;
-        if (rowIndex < minRow || colIndex < minCol || bottomRow > maxRow || rightCol > maxCol) {
-          showNotification('연속된 직사각형 영역만 병합할 수 있습니다.', 'warning');
-          return;
-        }
-      }
 
       for (let r = minRow; r <= maxRow; r++) {
         for (let c = minCol; c <= maxCol; c++) {
