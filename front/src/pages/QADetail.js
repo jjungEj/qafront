@@ -73,6 +73,12 @@ const findCellByCoordinates = (matrix, rowIndex, colIndex) => {
   return matrix[rowIndex]?.[colIndex] || null;
 };
 
+const toTimestampNumber = (value) => {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
 /**
 * @ClassName	: QADetail.js
 * @Description	: QA 파일 상세 페이지, 파일 정보 표시, 피드백 저장, HTML 테이블 편집(셀 선택/병합/Undo-Redo), 파일 다운로드(JSONL/HTML)
@@ -90,6 +96,7 @@ const QADetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
+  const [displayedUpdatedAt, setDisplayedUpdatedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [feedback, setFeedback] = useState('');
@@ -107,6 +114,19 @@ const QADetail = () => {
     const editedSheetsRef = useRef([]);
     const dirtySheetsRef = useRef(new Set());
     const editingCellRef = useRef(null);
+  const effectiveUpdatedAt = displayedUpdatedAt || file?.updatedAt;
+
+  useEffect(() => {
+    if (!file?.updatedAt) return;
+    setDisplayedUpdatedAt(prev => {
+      if (!prev) {
+        return file.updatedAt;
+      }
+      return toTimestampNumber(file.updatedAt) > toTimestampNumber(prev)
+        ? file.updatedAt
+        : prev;
+    });
+  }, [file?.updatedAt]);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -586,9 +606,28 @@ const QADetail = () => {
       showNotification('셀이 병합되었습니다.', 'success');
     };
 
+  const markEditCompletionTimestamp = useCallback(() => {
+    const nowIsoString = new Date().toISOString();
+    setDisplayedUpdatedAt(prev => {
+      if (!prev) {
+        return nowIsoString;
+      }
+      return toTimestampNumber(nowIsoString) >= toTimestampNumber(prev)
+        ? nowIsoString
+        : prev;
+    });
+    setFile(prevFile => {
+      if (!prevFile) return prevFile;
+      return { ...prevFile, updatedAt: nowIsoString };
+    });
+  }, [setFile]);
+
   // 편집 모드 토글
   const toggleEditMode = () => {
-    setIsEditing(!isEditing);
+    if (isEditing) {
+      markEditCompletionTimestamp();
+    }
+    setIsEditing(prev => !prev);
     setSelectedCells([]);
   };
 
@@ -1046,28 +1085,28 @@ const QADetail = () => {
             alignItems: 'center',
             fontSize: '14px'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#6b7280', fontWeight: 500 }}>파일명:</span>
-              <span style={{ fontWeight: 600, color: '#111827' }}>{file.fileName}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#6b7280', fontWeight: 500 }}>크기:</span>
-              <span>{formatFileSize(file.fileSize)}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#6b7280', fontWeight: 500 }}>타입:</span>
-              <span>{file.fileType?.toUpperCase() || '-'}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ color: '#6b7280', fontWeight: 500 }}>업로드:</span>
-              <span>{formatDateTime(file.uploadedAt)}</span>
-            </div>
-            {file.updatedAt && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: '#6b7280', fontWeight: 500 }}>수정:</span>
-                <span>{formatDateTime(file.updatedAt)}</span>
+                <span style={{ color: '#6b7280', fontWeight: 500 }}>파일명:</span>
+                <span style={{ fontWeight: 600, color: '#111827' }}>{file.fileName}</span>
               </div>
-            )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: '#6b7280', fontWeight: 500 }}>크기:</span>
+                <span>{formatFileSize(file.fileSize)}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: '#6b7280', fontWeight: 500 }}>타입:</span>
+                <span>{file.fileType?.toUpperCase() || '-'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: '#6b7280', fontWeight: 500 }}>업로드:</span>
+                <span>{formatDateTime(file.uploadedAt)}</span>
+              </div>
+              {effectiveUpdatedAt && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#6b7280', fontWeight: 500 }}>수정:</span>
+                  <span>{formatDateTime(effectiveUpdatedAt)}</span>
+                </div>
+              )}
           </div>
         </div>
 
