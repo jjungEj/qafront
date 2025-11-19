@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   uploadQaFile,
+  uploadQaHtmlFile,
   getQaFiles,
   deleteQaFile
 } from '../utils/api';
@@ -49,24 +50,57 @@ const QA = () => {
     }
   }, [showNotification]);
 
+  const buildErrorMessage = useCallback((error, fallbackMessage) => {
+    const messageFromResponse = error.response?.data?.message;
+    if (messageFromResponse) {
+      return messageFromResponse;
+    }
+
+    const fieldErrors = error.response?.data?.errors;
+    if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+      return fieldErrors.map((e) => e.message).join(', ');
+    }
+
+    return fallbackMessage;
+  }, []);
+
   useEffect(() => {
     fetchFiles();
   }, [fetchFiles]);
 
-  const handleFileUpload = useCallback(async (file) => {
+  const handleExcelUpload = useCallback(async (file) => {
     try {
       const response = await uploadQaFile(file);
       showNotification('파일이 성공적으로 업로드되었습니다.', 'success');
       fetchFiles();
       return response.data;
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 
-                          (error.response?.data?.errors?.map(e => e.message).join(', ')) ||
-                          '파일 업로드에 실패했습니다.';
+      const errorMessage = buildErrorMessage(error, '파일 업로드에 실패했습니다.');
       showNotification(errorMessage, 'error');
       throw error;
     }
-  }, [showNotification, fetchFiles]);
+  }, [showNotification, fetchFiles, buildErrorMessage]);
+
+  const handleHtmlUpload = useCallback(async (file) => {
+    try {
+      const response = await uploadQaHtmlFile(file);
+      showNotification('HTML 파일이 성공적으로 업로드되었습니다.', 'success');
+      fetchFiles();
+      return response.data;
+    } catch (error) {
+      let errorMessage = buildErrorMessage(error, 'HTML 파일 업로드에 실패했습니다.');
+      if (error.response?.status === 400) {
+        const serverMessage = error.response?.data?.message || '';
+        if (!serverMessage || /table/i.test(serverMessage)) {
+          errorMessage = '테이블을 찾을 수 없습니다.';
+        } else {
+          errorMessage = serverMessage;
+        }
+      }
+      showNotification(errorMessage, 'error');
+      throw error;
+    }
+  }, [showNotification, fetchFiles, buildErrorMessage]);
 
   const handleOpenDetail = (fileId) => {
     // 같은 화면에서 상세 페이지로 이동
@@ -96,8 +130,11 @@ const QA = () => {
       />
       <h1 className="page-title">QA 파일 관리</h1>
       <div className="page-content">
-        <div className="action-buttons" style={{ marginBottom: '20px' }}>
-          <LocalFileUploader onUpload={handleFileUpload} />
+          <div className="action-buttons" style={{ marginBottom: '20px' }}>
+            <LocalFileUploader 
+              onExcelUpload={handleExcelUpload}
+              onHtmlUpload={handleHtmlUpload}
+            />
         </div>
 
         <div className="table-container">
