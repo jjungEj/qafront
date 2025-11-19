@@ -1,3 +1,16 @@
+/**
+* @ClassName	: QADetail.js
+* @Description	: QA 파일 상세 페이지, 파일 정보 표시, 피드백 저장, HTML 테이블 편집(셀 선택/병합/Undo-Redo), 파일 다운로드(JSONL/HTML)
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 파일 상세 정보 조회 및 표시
+* 								                - 피드백 입력 및 저장 기능
+* 								                - HTML 테이블 편집 기능 (셀 선택, 병합, Undo/Redo)
+* 								                - JSONL 변환 및 HTML 다운로드 기능
+*/
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
@@ -79,19 +92,7 @@ const toTimestampNumber = (value) => {
   return Number.isFinite(time) ? time : 0;
 };
 
-/**
-* @ClassName	: QADetail.js
-* @Description	: QA 파일 상세 페이지, 파일 정보 표시, 피드백 저장, HTML 테이블 편집(셀 선택/병합/Undo-Redo), 파일 다운로드(JSONL/HTML)
-* @Author		: 정은주
-* @Date			: 2025.11.17
-* ===========================================================
-* DATE              AUTHOR             NOTE
-* -----------------------------------------------------------
-* 2025.11.17        정은주        - 파일 상세 정보 조회 및 표시
-* 								- 피드백 입력 및 저장 기능
-* 								- HTML 테이블 편집 기능 (셀 선택, 병합, Undo/Redo)
-* 								- JSONL 변환 및 HTML 다운로드 기능
-*/
+
 const QADetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -1135,7 +1136,7 @@ const QADetail = () => {
           <div className="form-group">
             <div style={{ marginBottom: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label className="form-label">시트 데이터</label>
+                <label className="form-label"></label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button 
                     type="button" 
@@ -1298,4 +1299,3 @@ const QADetail = () => {
 };
 
 export default QADetail;
-
