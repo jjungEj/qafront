@@ -144,7 +144,7 @@ const QA = () => {
                 <th>파일명</th>
                 <th>파일 크기</th>
                 <th>타입</th>
-                <th>확인 사항</th>
+                <th>피드백</th>
                 <th>업로드 일시</th>
                 <th>작업</th>
               </tr>
