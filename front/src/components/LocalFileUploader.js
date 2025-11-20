@@ -32,13 +32,17 @@ const normalizeExtension = (fileName = '') => {
   return extension;
 };
 
+const MAX_BATCH_COUNT_DEFAULT = 5;
+
 const LocalFileUploader = ({
   onUpload,
   onExcelUpload,
   onHtmlUpload,
+  onBatchUpload,
+  maxBatchCount,
   disabled,
 }) => {
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [detectedType, setDetectedType] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -55,56 +59,83 @@ const LocalFileUploader = ({
     }
   };
 
+  const resetSelection = () => {
+    setSelectedFiles([]);
+    setDetectedType(null);
+    resetInput();
+  };
+
+  const detectFileType = (fileName = '') => {
+    const extension = normalizeExtension(fileName);
+    if (FILE_TYPE_CONFIG.excel.extensions.includes(extension)) {
+      return 'excel';
+    }
+    if (FILE_TYPE_CONFIG.html.extensions.includes(extension)) {
+      return 'html';
+    }
+    return null;
+  };
+
   const handleFileChange = (event) => {
-    const file = event.target.files?.[0] ?? null;
+    const files = Array.from(event.target.files ?? []);
     setErrorMessage('');
 
-    if (!file) {
-      setSelectedFile(null);
+    if (files.length === 0) {
+      resetSelection();
+      return;
+    }
+
+    if (files.length > 1) {
+      if (files.length > maxBatchCount) {
+        resetSelection();
+        setErrorMessage(`한 번에 최대 ${maxBatchCount}개까지 업로드할 수 있습니다.`);
+        return;
+      }
+
+      setSelectedFiles(files);
       setDetectedType(null);
       return;
     }
 
-    const extension = normalizeExtension(file.name);
-    if (FILE_TYPE_CONFIG.excel.extensions.includes(extension)) {
-      setSelectedFile(file);
-      setDetectedType('excel');
+    const [file] = files;
+    const fileType = detectFileType(file.name);
+
+    if (!fileType) {
+      resetSelection();
+      setErrorMessage('지원하지 않는 파일 형식입니다. 엑셀/CSV 또는 HTML 파일만 업로드할 수 있습니다.');
       return;
     }
 
-    if (FILE_TYPE_CONFIG.html.extensions.includes(extension)) {
-      setSelectedFile(file);
-      setDetectedType('html');
-      return;
-    }
-
-    resetInput();
-    setSelectedFile(null);
-    setDetectedType(null);
-    setErrorMessage('지원하지 않는 파일 형식입니다. 엑셀/CSV 또는 HTML 파일만 업로드할 수 있습니다.');
+    setSelectedFiles([file]);
+    setDetectedType(fileType);
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setErrorMessage('');
 
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       setErrorMessage('업로드할 파일을 선택해주세요.');
-      return;
-    }
-
-    const uploadHandler = detectedType ? handlerByType[detectedType] : null;
-    if (!uploadHandler) {
-      setErrorMessage('선택한 파일 형식을 처리할 수 있는 핸들러가 구성되지 않았습니다.');
       return;
     }
 
     setIsUploading(true);
     try {
-      await uploadHandler(selectedFile);
-      setSelectedFile(null);
-      setDetectedType(null);
-      resetInput();
+      if (selectedFiles.length === 1) {
+        const uploadHandler = detectedType ? handlerByType[detectedType] : onUpload;
+        if (!uploadHandler) {
+          setErrorMessage('선택한 파일 형식을 처리할 수 있는 핸들러가 구성되지 않았습니다.');
+          return;
+        }
+        await uploadHandler(selectedFiles[0]);
+      } else {
+        if (!onBatchUpload) {
+          setErrorMessage('다중 업로드 핸들러가 구성되지 않았습니다.');
+          return;
+        }
+        await onBatchUpload(selectedFiles);
+      }
+      resetSelection();
     } catch (error) {
       // 상위 컴포넌트에서 에러 노출 처리
     } finally {
@@ -112,7 +143,12 @@ const LocalFileUploader = ({
     }
   };
 
-  const isSubmitDisabled = !selectedFile || isUploading || disabled || !handlerByType[detectedType];
+  const isBatchMode = selectedFiles.length > 1;
+  const singleUploadHandler = detectedType ? handlerByType[detectedType] : null;
+  const isSubmitDisabled = selectedFiles.length === 0
+    || isUploading
+    || disabled
+    || (isBatchMode ? !onBatchUpload : !singleUploadHandler);
 
   return (
     <div className="local-file-uploader">
@@ -122,6 +158,7 @@ const LocalFileUploader = ({
             ref={fileInputRef}
             type="file"
             accept={ACCEPT_ALL}
+            multiple
             onChange={handleFileChange}
             disabled={isUploading || disabled}
           />
@@ -130,12 +167,17 @@ const LocalFileUploader = ({
             className="btn-primary"
             disabled={isSubmitDisabled}
           >
-            {isUploading ? '업로드 중...' : '업로드'}
+            {isUploading ? '업로드 중...' : (isBatchMode ? '다중 업로드' : '업로드')}
           </button>
         </div>
         <p className="local-file-uploader__hint">
-          {FILE_TYPE_CONFIG.excel.helperText}
+          {`엑셀/CSV/HTML 파일을 선택할 수 있으며 한 번에 최대 ${maxBatchCount}개까지 업로드할 수 있습니다.`}
         </p>
+        {isBatchMode && (
+          <p className="local-file-uploader__hint">
+            {`선택된 파일: ${selectedFiles.length}개`}
+          </p>
+        )}
         {errorMessage && (
           <p className="local-file-uploader__error">{errorMessage}</p>
         )}
@@ -148,6 +190,8 @@ LocalFileUploader.propTypes = {
   onUpload: PropTypes.func,
   onExcelUpload: PropTypes.func,
   onHtmlUpload: PropTypes.func,
+  onBatchUpload: PropTypes.func,
+  maxBatchCount: PropTypes.number,
   disabled: PropTypes.bool,
 };
 
@@ -155,6 +199,8 @@ LocalFileUploader.defaultProps = {
   onUpload: null,
   onExcelUpload: null,
   onHtmlUpload: null,
+  onBatchUpload: null,
+  maxBatchCount: MAX_BATCH_COUNT_DEFAULT,
   disabled: false,
 };
 
