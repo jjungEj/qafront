@@ -15,12 +15,15 @@ import { useNavigate } from 'react-router-dom';
 import { 
   uploadQaFile,
   uploadQaHtmlFile,
-  getQaFiles,
+  uploadQaFilesMultiple,
+  getQaFilesPaged,
+  searchQaFiles,
   deleteQaFile
 } from '../utils/api';
 import { formatDateTime, formatFileSize } from '../utils/format';
 import LocalFileUploader from '../components/LocalFileUploader';
 import { NotificationContainer } from '../components/Notification';
+import Modal from '../components/Modal';
 import './Page.css';
 
 const QA = () => {
@@ -28,6 +31,13 @@ const QA = () => {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
+  const [pageData, setPageData] = useState(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateFiles, setDuplicateFiles] = useState([]);
+  const pageSize = 10;
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -38,17 +48,31 @@ const QA = () => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const fetchFiles = useCallback(async () => {
+  const fetchFiles = useCallback(async (page = 0, keyword = '') => {
     try {
       setLoading(true);
-      const response = await getQaFiles();
-      setFiles(response.data || []);
+      let response;
+      
+      if (keyword.trim()) {
+        // 검색 모드
+        response = await searchQaFiles(keyword, page, pageSize);
+        setIsSearching(true);
+      } else {
+        // 페이징 모드
+        response = await getQaFilesPaged(page, pageSize);
+        setIsSearching(false);
+      }
+      
+      const data = response.data || {};
+      setPageData(data);
+      setFiles(data.content || []);
+      setCurrentPage(data.page || 0);
     } catch (error) {
       showNotification('파일 목록을 불러오는데 실패했습니다.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [showNotification]);
+  }, [showNotification, pageSize]);
 
   const buildErrorMessage = useCallback((error, fallbackMessage) => {
     const messageFromResponse = error.response?.data?.message;
@@ -65,29 +89,48 @@ const QA = () => {
   }, []);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
+    fetchFiles(currentPage, searchKeyword);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, searchKeyword]);
 
   const handleExcelUpload = useCallback(async (file) => {
     try {
       const response = await uploadQaFile(file);
       showNotification('파일이 성공적으로 업로드되었습니다.', 'success');
-      fetchFiles();
+      setCurrentPage(0);
+      fetchFiles(0, searchKeyword);
       return response.data;
     } catch (error) {
+      // 409 에러 처리 (중복 파일)
+      if (error.response?.status === 409) {
+        const errorMessage = error.response?.data?.message || '이미 업로드한 파일입니다.';
+        showNotification(errorMessage, 'warning');
+        setCurrentPage(0);
+        fetchFiles(0, searchKeyword);
+        return null;
+      }
       const errorMessage = buildErrorMessage(error, '파일 업로드에 실패했습니다.');
       showNotification(errorMessage, 'error');
       throw error;
     }
-  }, [showNotification, fetchFiles, buildErrorMessage]);
+  }, [showNotification, fetchFiles, buildErrorMessage, searchKeyword]);
 
   const handleHtmlUpload = useCallback(async (file) => {
     try {
       const response = await uploadQaHtmlFile(file);
       showNotification('HTML 파일이 성공적으로 업로드되었습니다.', 'success');
-      fetchFiles();
+      setCurrentPage(0);
+      fetchFiles(0, searchKeyword);
       return response.data;
     } catch (error) {
+      // 409 에러 처리 (중복 파일)
+      if (error.response?.status === 409) {
+        const errorMessage = error.response?.data?.message || '이미 업로드한 파일입니다.';
+        showNotification(errorMessage, 'warning');
+        setCurrentPage(0);
+        fetchFiles(0, searchKeyword);
+        return null;
+      }
       let errorMessage = buildErrorMessage(error, 'HTML 파일 업로드에 실패했습니다.');
       if (error.response?.status === 400) {
         const serverMessage = error.response?.data?.message || '';
@@ -100,7 +143,48 @@ const QA = () => {
       showNotification(errorMessage, 'error');
       throw error;
     }
-  }, [showNotification, fetchFiles, buildErrorMessage]);
+  }, [showNotification, fetchFiles, buildErrorMessage, searchKeyword]);
+
+  const handleMultipleUpload = useCallback(async (files) => {
+    try {
+      const response = await uploadQaFilesMultiple(files);
+      const result = response.data;
+      
+      // 중복 파일 알림
+      if (result.duplicateFiles && result.duplicateFiles.length > 0) {
+        setDuplicateFiles(result.duplicateFiles);
+        setShowDuplicateModal(true);
+      }
+      
+      // 성공/실패 알림
+      const successCount = result.successFiles?.length || 0;
+      const duplicateCount = result.duplicateFiles?.length || 0;
+      const errorCount = result.errorFiles?.length || 0;
+      
+      if (successCount > 0) {
+        showNotification(
+          `업로드 완료: 성공 ${successCount}개${duplicateCount > 0 ? `, 중복 ${duplicateCount}개` : ''}${errorCount > 0 ? `, 실패 ${errorCount}개` : ''}`,
+          successCount === files.length ? 'success' : 'warning'
+        );
+      } else if (duplicateCount > 0) {
+        showNotification(`모든 파일이 중복되었습니다. (${duplicateCount}개)`, 'warning');
+      } else if (errorCount > 0) {
+        showNotification(`업로드 실패: ${errorCount}개`, 'error');
+      }
+      
+      // 목록 새로고침
+      if (successCount > 0) {
+        setCurrentPage(0);
+        fetchFiles(0, searchKeyword);
+      }
+      
+      return result;
+    } catch (error) {
+      const errorMessage = buildErrorMessage(error, '다중 파일 업로드에 실패했습니다.');
+      showNotification(errorMessage, 'error');
+      throw error;
+    }
+  }, [showNotification, fetchFiles, buildErrorMessage, searchKeyword]);
 
   const handleOpenDetail = (fileId) => {
     // 같은 화면에서 상세 페이지로 이동
@@ -115,11 +199,33 @@ const QA = () => {
     try {
       await deleteQaFile(fileId);
       showNotification('파일이 삭제되었습니다.', 'success');
-      fetchFiles(); // 목록 새로고침
+      // 삭제 후 현재 페이지 유지 (마지막 페이지의 마지막 항목 삭제 시 이전 페이지로 이동)
+      const newPage = pageData && files.length === 1 && currentPage > 0 
+        ? currentPage - 1 
+        : currentPage;
+      setCurrentPage(newPage);
+      fetchFiles(newPage, searchKeyword);
     } catch (error) {
       const errorMessage = error.response?.data?.message || '파일 삭제에 실패했습니다.';
       showNotification(errorMessage, 'error');
     }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setCurrentPage(0);
+    fetchFiles(0, searchKeyword);
+  };
+
+  const handleSearchReset = () => {
+    setSearchKeyword('');
+    setCurrentPage(0);
+    fetchFiles(0, '');
+  };
+
+  const handlePageChange = (newPage) => {
+    setCurrentPage(newPage);
+    fetchFiles(newPage, searchKeyword);
   };
 
   return (
@@ -130,12 +236,63 @@ const QA = () => {
       />
       <h1 className="page-title">QA 파일 관리</h1>
       <div className="page-content">
-          <div className="action-buttons" style={{ marginBottom: '20px' }}>
+        {/* 검색 기능과 파일 업로드를 같은 줄에 배치 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap' }}>
+          {/* 검색 기능 */}
+          <div style={{ flex: '0 0 auto' }}>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="파일명으로 검색..."
+                style={{
+                  width: '300px',
+                  maxWidth: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              />
+              <button
+                type="submit"
+                className="btn-primary"
+                style={{ padding: '8px 16px' }}
+              >
+                검색
+              </button>
+              {searchKeyword && (
+                <button
+                  type="button"
+                  onClick={handleSearchReset}
+                  className="btn-secondary"
+                  style={{ padding: '8px 16px' }}
+                >
+                  초기화
+                </button>
+              )}
+            </form>
+          </div>
+
+          {/* 파일 업로드 */}
+          <div className="action-buttons" style={{ flex: '0 0 auto' }}>
             <LocalFileUploader 
               onExcelUpload={handleExcelUpload}
               onHtmlUpload={handleHtmlUpload}
+              onMultipleUpload={handleMultipleUpload}
+              multiple={true}
             />
+          </div>
         </div>
+
+        {/* 파일 목록 정보 */}
+        {pageData && (
+          <div style={{ marginBottom: '12px', fontSize: '14px', color: '#6b7280' }}>
+            전체 {pageData.totalElements || 0}개
+            {isSearching && searchKeyword && ` (검색어: "${searchKeyword}")`}
+          </div>
+        )}
 
         <div className="table-container">
           <table className="data-table">
@@ -156,7 +313,9 @@ const QA = () => {
                 </tr>
               ) : files.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="empty-message">파일이 없습니다.</td>
+                  <td colSpan="6" className="empty-message">
+                    {isSearching ? '검색 결과가 없습니다.' : '파일이 없습니다.'}
+                  </td>
                 </tr>
               ) : (
                 files.map((file) => (
@@ -199,6 +358,87 @@ const QA = () => {
             </tbody>
           </table>
         </div>
+
+        {/* 페이징 컨트롤 */}
+        {pageData && pageData.totalPages > 1 && (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            gap: '12px',
+            marginTop: '20px',
+            padding: '16px'
+          }}>
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={!pageData.hasPrevious || loading}
+              className="btn-secondary"
+              style={{ padding: '8px 16px' }}
+            >
+              이전
+            </button>
+            <span style={{ fontSize: '14px', color: '#6b7280' }}>
+              페이지 {currentPage + 1} / {pageData.totalPages || 1}
+            </span>
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={!pageData.hasNext || loading}
+              className="btn-secondary"
+              style={{ padding: '8px 16px' }}
+            >
+              다음
+            </button>
+          </div>
+        )}
+
+        {/* 중복 파일 모달 */}
+        <Modal
+          isOpen={showDuplicateModal}
+          onClose={() => {
+            setShowDuplicateModal(false);
+            setDuplicateFiles([]);
+          }}
+          title="중복 파일 알림"
+        >
+          <div>
+            <p style={{ marginBottom: '16px' }}>
+              다음 파일들은 이미 업로드되어 있습니다:
+            </p>
+            <ul style={{ 
+              listStyle: 'none', 
+              padding: 0,
+              margin: 0,
+              maxHeight: '300px',
+              overflowY: 'auto'
+            }}>
+              {duplicateFiles.map((file, index) => (
+                <li 
+                  key={index}
+                  style={{
+                    padding: '8px 12px',
+                    marginBottom: '4px',
+                    backgroundColor: '#fef3c7',
+                    borderRadius: '4px',
+                    border: '1px solid #fde68a'
+                  }}
+                >
+                  {file.fileName}
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setShowDuplicateModal(false);
+                  setDuplicateFiles([]);
+                }}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
     </div>
   );

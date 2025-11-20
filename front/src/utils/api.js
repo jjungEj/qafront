@@ -60,6 +60,10 @@ api.interceptors.response.use(
           console.error('요청 오류:', data.message || '잘못된 요청입니다.');
         }
       }
+      // 409 에러 (중복 파일)
+      else if (status === 409) {
+        console.error('중복 파일:', data.message || '이미 업로드한 파일입니다.');
+      }
       // 500 에러
       else if (status >= 500) {
         console.error('서버 오류가 발생했습니다.');
@@ -73,67 +77,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// ==================== 로컬 파일 (Local Files) ====================
-export const getLocalFiles = (params = {}) => api.get('/local-files', { params });
-export const getLocalFile = (id) => api.get(`/local-files/${id}`);
-export const createLocalFile = (data) => api.post('/local-files', data);
-export const updateLocalFile = (id, data) => api.put(`/local-files/${id}`, data);
-export const deleteLocalFile = (id) => api.delete(`/local-files/${id}`);
-export const getLocalFileSummary = () => api.get('/local-files/summary');
-export const uploadLocalFile = (file, config = {}) => {
-  if (!file) {
-    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
-  }
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const headers = {
-    ...(config.headers || {}),
-    'Content-Type': 'multipart/form-data',
-  };
-
-  return api.post('/local-files/upload', formData, {
-    ...config,
-    headers,
-  });
-};
-
-
-// ==================== 시스템 상태 ====================
-export const getSystemStatus = () => api.get('/system-status');
-export const getSystemStatusSummary = () => api.get('/system-status/summary');
-export const getSystemStatusTimeline = () => api.get('/system-status/timeline');
-export const createSystemStatusSnapshot = (data) => api.post('/system-status', data);
-
-// ==================== 파이프라인 타임라인 ====================
-export const getPipelineTimeline = () => api.get('/pipelines/timeline');
-
-// ==================== 결과 테이블 편집 ====================
-export const updateResultTable = (id, data) => api.put(`/results/${id}/table`, data);
-
-// ==================== 파일 다운로드 ====================
-export const downloadResultJsonl = (id, params = {}) =>
-  api.get(`/results/${id}/download/jsonl`, { params, responseType: 'blob' });
-
-// ==================== QA 문서 (QA Documents) ====================
-// QA 결과 목록 조회 (로컬 파일 결과와 QA 문서 정보 포함)
-export const getQaResults = () => api.get('/qa');
-// QA 결과 상세 조회
-export const getQaResult = (resultId) => api.get(`/qa/results/${resultId}`);
-// QA 문서 조회 (결과 ID로)
-export const getQaDocumentByResultId = (resultId) => api.get(`/qa/results/${resultId}/document`);
-// QA 문서 생성
-export const createQaDocument = (data) => api.post('/qa', data);
-// QA 문서 수정
-export const updateQaDocument = (id, data) => api.put(`/qa/${id}`, data);
-export const deleteQaDocument = (id) => api.delete(`/qa/${id}`);
-// QA 상태 업데이트
-export const updateQaStatus = (resultId, data) => api.put(`/qa/results/${resultId}/status`, data);
-// 코멘트
-export const getQaComments = (resultId) => api.get(`/qa/results/${resultId}/comments`);
-export const createQaComment = (resultId, data) => api.post(`/qa/results/${resultId}/comments`, data);
 
 // ==================== QA 파일 관리 (QA File Management) ====================
 
@@ -183,6 +126,7 @@ export const uploadQaFile = (file, config = {}) => {
  * @param {File} file - 업로드할 HTML 파일 (.html, .htm)
  * @param {Object} config - 추가 설정 옵션
  * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
+ * @throws {Error} 중복 파일인 경우 409 상태 코드와 함께 에러 반환
  */
 export const uploadQaHtmlFile = (file, config = {}) => {
   if (!file) {
@@ -204,17 +148,86 @@ export const uploadQaHtmlFile = (file, config = {}) => {
 };
 
 /**
- * 파일 목록 조회
- * 업로드된 모든 파일의 목록을 조회 (업로드 시간 내림차순)
+ * 다중 파일 업로드
+ * 여러 파일을 동시에 업로드 (엑셀/CSV 및 HTML 파일 모두 지원)
  * 
- * @returns {Promise<AxiosResponse>} 파일 목록 배열
- *   각 파일 객체: { id, fileName, fileSize, fileType, feedback, uploadedAt }
+ * @param {File[]} files - 업로드할 파일 배열
+ * @param {Object} config - 추가 설정 옵션
+ * @returns {Promise<AxiosResponse>} 업로드 결과
+ *   - successFiles: 성공적으로 업로드된 파일 목록
+ *   - duplicateFiles: 중복된 파일 목록 [{ fileName, message }]
+ *   - errorFiles: 오류가 발생한 파일 목록 [{ fileName, errorMessage }]
  * 
  * @example
- * const response = await getQaFiles();
- * const files = response.data; // [{ id: 1, fileName: "example.xlsx", ... }, ...]
+ * const files = Array.from(fileInput.files);
+ * const response = await uploadQaFilesMultiple(files);
+ * const { successFiles, duplicateFiles, errorFiles } = response.data;
  */
-export const getQaFiles = () => api.get('/qa/files');
+export const uploadQaFilesMultiple = (files, config = {}) => {
+  if (!files || files.length === 0) {
+    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+  }
+
+  const formData = new FormData();
+  // 여러 파일을 files 키로 추가
+  files.forEach(file => {
+    formData.append('files', file);
+  });
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data',
+  };
+
+  return api.post('/qa/upload/multiple', formData, {
+    ...config,
+    headers,
+  });
+};
+
+/**
+ * 페이징된 파일 목록 조회
+ * 
+ * @param {number} page - 페이지 번호 (0부터 시작, 기본값: 0)
+ * @param {number} size - 페이지 크기 (기본값: 10)
+ * @returns {Promise<AxiosResponse>} 페이징된 파일 목록
+ *   - content: 파일 목록 배열
+ *   - page: 현재 페이지 번호
+ *   - size: 페이지 크기
+ *   - totalElements: 전체 파일 개수
+ *   - totalPages: 전체 페이지 수
+ *   - hasNext: 다음 페이지 존재 여부
+ *   - hasPrevious: 이전 페이지 존재 여부
+ * 
+ * @example
+ * const response = await getQaFilesPaged(0, 10);
+ * const { content, totalElements, totalPages } = response.data;
+ */
+export const getQaFilesPaged = (page = 0, size = 10) => 
+  api.get('/qa/files/paged', { params: { page, size } });
+
+/**
+ * 파일 검색
+ * 파일명으로 파일을 검색 (페이징 지원)
+ * 
+ * @param {string} keyword - 검색어 (파일명에 포함된 문자열)
+ * @param {number} page - 페이지 번호 (기본값: 0)
+ * @param {number} size - 페이지 크기 (기본값: 10)
+ * @returns {Promise<AxiosResponse>} 페이징된 검색 결과
+ *   - content: 검색된 파일 목록 배열
+ *   - page: 현재 페이지 번호
+ *   - size: 페이지 크기
+ *   - totalElements: 전체 검색 결과 개수
+ *   - totalPages: 전체 페이지 수
+ *   - hasNext: 다음 페이지 존재 여부
+ *   - hasPrevious: 이전 페이지 존재 여부
+ * 
+ * @example
+ * const response = await searchQaFiles('example', 0, 10);
+ * const { content, totalElements } = response.data;
+ */
+export const searchQaFiles = (keyword, page = 0, size = 10) => 
+  api.get('/qa/files/search', { params: { keyword, page, size } });
 
 /**
  * 파일 상세 조회

@@ -36,9 +36,12 @@ const LocalFileUploader = ({
   onUpload,
   onExcelUpload,
   onHtmlUpload,
+  onMultipleUpload,
   disabled,
+  multiple = false,
 }) => {
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [detectedType, setDetectedType] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -56,30 +59,68 @@ const LocalFileUploader = ({
   };
 
   const handleFileChange = (event) => {
-    const file = event.target.files?.[0] ?? null;
+    const files = Array.from(event.target.files || []);
     setErrorMessage('');
 
-    if (!file) {
+    if (files.length === 0) {
       setSelectedFile(null);
+      setSelectedFiles([]);
       setDetectedType(null);
       return;
     }
 
+    // 다중 파일 선택 모드
+    if (multiple) {
+      const validFiles = [];
+      const invalidFiles = [];
+
+      files.forEach(file => {
+        const extension = normalizeExtension(file.name);
+        if (FILE_TYPE_CONFIG.excel.extensions.includes(extension) || 
+            FILE_TYPE_CONFIG.html.extensions.includes(extension)) {
+          validFiles.push(file);
+        } else {
+          invalidFiles.push(file.name);
+        }
+      });
+
+      if (invalidFiles.length > 0) {
+        setErrorMessage(`다음 파일들은 지원하지 않는 형식입니다: ${invalidFiles.join(', ')}`);
+      }
+
+      if (validFiles.length > 0) {
+        setSelectedFiles(validFiles);
+        setSelectedFile(null);
+        setDetectedType(null);
+      } else {
+        resetInput();
+        setSelectedFiles([]);
+        setSelectedFile(null);
+        setDetectedType(null);
+      }
+      return;
+    }
+
+    // 단일 파일 선택 모드 (기존 로직)
+    const file = files[0];
     const extension = normalizeExtension(file.name);
     if (FILE_TYPE_CONFIG.excel.extensions.includes(extension)) {
       setSelectedFile(file);
+      setSelectedFiles([]);
       setDetectedType('excel');
       return;
     }
 
     if (FILE_TYPE_CONFIG.html.extensions.includes(extension)) {
       setSelectedFile(file);
+      setSelectedFiles([]);
       setDetectedType('html');
       return;
     }
 
     resetInput();
     setSelectedFile(null);
+    setSelectedFiles([]);
     setDetectedType(null);
     setErrorMessage('지원하지 않는 파일 형식입니다. 엑셀/CSV 또는 HTML 파일만 업로드할 수 있습니다.');
   };
@@ -88,6 +129,34 @@ const LocalFileUploader = ({
     event.preventDefault();
     setErrorMessage('');
 
+    // 다중 파일 업로드 모드
+    if (multiple) {
+      if (selectedFiles.length === 0) {
+        setErrorMessage('업로드할 파일을 선택해주세요.');
+        return;
+      }
+
+      if (onMultipleUpload) {
+        setIsUploading(true);
+        try {
+          await onMultipleUpload(selectedFiles);
+          setSelectedFiles([]);
+          setSelectedFile(null);
+          setDetectedType(null);
+          resetInput();
+        } catch (error) {
+          // 상위 컴포넌트에서 에러 노출 처리
+        } finally {
+          setIsUploading(false);
+        }
+        return;
+      } else {
+        setErrorMessage('다중 파일 업로드 핸들러가 구성되지 않았습니다.');
+        return;
+      }
+    }
+
+    // 단일 파일 업로드 모드 (기존 로직)
     if (!selectedFile) {
       setErrorMessage('업로드할 파일을 선택해주세요.');
       return;
@@ -103,6 +172,7 @@ const LocalFileUploader = ({
     try {
       await uploadHandler(selectedFile);
       setSelectedFile(null);
+      setSelectedFiles([]);
       setDetectedType(null);
       resetInput();
     } catch (error) {
@@ -112,7 +182,9 @@ const LocalFileUploader = ({
     }
   };
 
-  const isSubmitDisabled = !selectedFile || isUploading || disabled || !handlerByType[detectedType];
+  const isSubmitDisabled = multiple 
+    ? (selectedFiles.length === 0 || isUploading || disabled || !onMultipleUpload)
+    : (!selectedFile || isUploading || disabled || !handlerByType[detectedType]);
 
   return (
     <div className="local-file-uploader">
@@ -122,6 +194,7 @@ const LocalFileUploader = ({
             ref={fileInputRef}
             type="file"
             accept={ACCEPT_ALL}
+            multiple={multiple}
             onChange={handleFileChange}
             disabled={isUploading || disabled}
           />
@@ -130,7 +203,7 @@ const LocalFileUploader = ({
             className="btn-primary"
             disabled={isSubmitDisabled}
           >
-            {isUploading ? '업로드 중...' : '업로드'}
+            {isUploading ? '업로드 중...' : `업로드${multiple && selectedFiles.length > 0 ? ` (${selectedFiles.length}개)` : ''}`}
           </button>
         </div>
         <p className="local-file-uploader__hint">
@@ -148,14 +221,18 @@ LocalFileUploader.propTypes = {
   onUpload: PropTypes.func,
   onExcelUpload: PropTypes.func,
   onHtmlUpload: PropTypes.func,
+  onMultipleUpload: PropTypes.func,
   disabled: PropTypes.bool,
+  multiple: PropTypes.bool,
 };
 
 LocalFileUploader.defaultProps = {
   onUpload: null,
   onExcelUpload: null,
   onHtmlUpload: null,
+  onMultipleUpload: null,
   disabled: false,
+  multiple: false,
 };
 
 export default LocalFileUploader;
