@@ -100,42 +100,6 @@ export const uploadLocalFile = (file, config = {}) => {
   });
 };
 
-// ==================== 모델 (Models) ====================
-export const getModels = () => api.get('/models');
-export const getModel = (id) => api.get(`/models/${id}`);
-export const createModel = (data) => api.post('/models', data);
-export const updateModel = (id, data) => api.put(`/models/${id}`, data);
-export const deleteModel = (id) => api.delete(`/models/${id}`);
-
-// ==================== 파이프라인 (Pipelines) ====================
-export const getPipelines = (params = {}) => api.get('/pipelines', { params });
-export const getPipeline = (id) => api.get(`/pipelines/${id}`);
-export const createPipeline = (data) => api.post('/pipelines', data);
-export const updatePipeline = (id, data) => api.put(`/pipelines/${id}`, data);
-export const deletePipeline = (id) => api.delete(`/pipelines/${id}`);
-
-// ==================== 결과 (Results) ====================
-export const getResults = (params = {}) => api.get('/results', { params });
-// 로컬 파일에서 업로드된 결과만 조회
-export const getLocalFileResults = () => api.get('/results', { params: { fromLocalFiles: true } });
-export const getResult = (id) => api.get(`/results/${id}`);
-export const createResult = (data) => api.post('/results', data);
-export const updateResult = (id, data) => api.put(`/results/${id}`, data);
-export const deleteResult = (id) => api.delete(`/results/${id}`);
-export const getResultSummary = () => api.get('/results/summary');
-// HTML 수정
-export const updateResultSheetHtml = (resultId, sheetId, htmlContent) => 
-  api.put(`/results/${resultId}/sheets/${sheetId}/html`, { htmlContent });
-
-// ==================== 피드백 (Feedback) ====================
-export const getFeedbacks = (resultId = null) => {
-  const params = resultId ? { resultId } : {};
-  return api.get('/feedback', { params });
-};
-export const getFeedback = (id) => api.get(`/feedback/${id}`);
-export const createFeedback = (data) => api.post('/feedback', data);
-export const updateFeedback = (id, data) => api.put(`/feedback/${id}`, data);
-export const deleteFeedback = (id) => api.delete(`/feedback/${id}`);
 
 // ==================== 시스템 상태 ====================
 export const getSystemStatus = () => api.get('/system-status');
