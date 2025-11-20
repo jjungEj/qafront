@@ -240,6 +240,36 @@ export const uploadQaHtmlFile = (file, config = {}) => {
 };
 
 /**
+ * QA 파일 다중 업로드
+ *
+ * @param {File[]|FileList} files - 업로드할 파일 배열 또는 FileList
+ * @param {Object} config - 추가 설정 옵션
+ * @returns {Promise<AxiosResponse>} 업로드 결과
+ */
+export const uploadQaFilesBatch = (files, config = {}) => {
+  const fileList = Array.from(files || []).filter(Boolean);
+
+  if (fileList.length === 0) {
+    return Promise.reject(new Error('업로드할 파일을 선택해주세요.'));
+  }
+
+  const formData = new FormData();
+  fileList.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const headers = {
+    ...(config.headers || {}),
+    'Content-Type': 'multipart/form-data',
+  };
+
+  return api.post('/qa/upload/batch', formData, {
+    ...config,
+    headers,
+  });
+};
+
+/**
  * 파일 목록 조회
  * 업로드된 모든 파일의 목록을 조회 (업로드 시간 내림차순)
  * 
@@ -250,7 +280,7 @@ export const uploadQaHtmlFile = (file, config = {}) => {
  * const response = await getQaFiles();
  * const files = response.data; // [{ id: 1, fileName: "example.xlsx", ... }, ...]
  */
-export const getQaFiles = () => api.get('/qa/files');
+export const getQaFiles = (params = {}) => api.get('/qa/files', { params });
 
 /**
  * 파일 상세 조회
