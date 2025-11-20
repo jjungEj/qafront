@@ -15,7 +15,6 @@ import { useNavigate } from 'react-router-dom';
 import { 
   uploadQaFile,
   uploadQaHtmlFile,
-  uploadQaFilesBatch,
   getQaFiles,
   deleteQaFile
 } from '../utils/api';
@@ -24,20 +23,11 @@ import LocalFileUploader from '../components/LocalFileUploader';
 import { NotificationContainer } from '../components/Notification';
 import './Page.css';
 
-const PAGE_SIZE = 10;
-const MAX_BATCH_COUNT = 5;
-
 const QA = () => {
   const navigate = useNavigate();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
-  const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
-  const [keyword, setKeyword] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [failedUploads, setFailedUploads] = useState([]);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -48,35 +38,11 @@ const QA = () => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const fetchFiles = useCallback(async (targetPage = 0, targetKeyword = '') => {
+  const fetchFiles = useCallback(async () => {
     try {
       setLoading(true);
-      const params = { page: targetPage, size: PAGE_SIZE };
-      if (targetKeyword) {
-        params.keyword = targetKeyword;
-      }
-
-      const response = await getQaFiles(params);
-      const data = response.data ?? {};
-      const resolvedFiles = Array.isArray(data)
-        ? data
-        : (data.files ?? data.content ?? data.items ?? []);
-
-      const resolvedTotalPages = typeof data.totalPages === 'number'
-        ? data.totalPages
-        : (typeof data.totalPage === 'number'
-          ? data.totalPage
-          : (resolvedFiles.length > 0 ? 1 : 0));
-
-      const resolvedTotalElements = typeof data.totalElements === 'number'
-        ? data.totalElements
-        : (typeof data.total === 'number'
-          ? data.total
-          : resolvedFiles.length);
-
-      setFiles(resolvedFiles);
-      setTotalPages(resolvedTotalPages);
-      setTotalElements(resolvedTotalElements);
+      const response = await getQaFiles();
+      setFiles(response.data || []);
     } catch (error) {
       showNotification('파일 목록을 불러오는데 실패했습니다.', 'error');
     } finally {
@@ -98,95 +64,46 @@ const QA = () => {
     return fallbackMessage;
   }, []);
 
-  const refetchCurrentPage = useCallback(() => {
-    return fetchFiles(page, keyword);
-  }, [fetchFiles, page, keyword]);
-
   useEffect(() => {
-    fetchFiles(page, keyword);
-  }, [fetchFiles, page, keyword]);
+    fetchFiles();
+  }, [fetchFiles]);
 
   const handleExcelUpload = useCallback(async (file) => {
     try {
       const response = await uploadQaFile(file);
       showNotification('파일이 성공적으로 업로드되었습니다.', 'success');
-      setFailedUploads([]);
-      refetchCurrentPage();
+      fetchFiles();
       return response.data;
     } catch (error) {
-      if (error.response?.status === 409) {
-        const message = error.response?.data?.message || '이미 업로드 된 파일입니다.';
-        showNotification(message, 'warning');
-      } else {
-        const errorMessage = buildErrorMessage(error, '파일 업로드에 실패했습니다.');
-        showNotification(errorMessage, 'error');
-      }
+      const errorMessage = buildErrorMessage(error, '파일 업로드에 실패했습니다.');
+      showNotification(errorMessage, 'error');
       throw error;
     }
-  }, [showNotification, refetchCurrentPage, buildErrorMessage]);
+  }, [showNotification, fetchFiles, buildErrorMessage]);
 
   const handleHtmlUpload = useCallback(async (file) => {
     try {
       const response = await uploadQaHtmlFile(file);
       showNotification('HTML 파일이 성공적으로 업로드되었습니다.', 'success');
-      setFailedUploads([]);
-      refetchCurrentPage();
+      fetchFiles();
       return response.data;
     } catch (error) {
-      if (error.response?.status === 409) {
-        const message = error.response?.data?.message || '이미 업로드 된 파일입니다.';
-        showNotification(message, 'warning');
-      } else {
-        let errorMessage = buildErrorMessage(error, 'HTML 파일 업로드에 실패했습니다.');
-        if (error.response?.status === 400) {
-          const serverMessage = error.response?.data?.message || '';
-          if (!serverMessage || /table/i.test(serverMessage)) {
-            errorMessage = '테이블을 찾을 수 없습니다.';
-          } else {
-            errorMessage = serverMessage;
-          }
+      let errorMessage = buildErrorMessage(error, 'HTML 파일 업로드에 실패했습니다.');
+      if (error.response?.status === 400) {
+        const serverMessage = error.response?.data?.message || '';
+        if (!serverMessage || /table/i.test(serverMessage)) {
+          errorMessage = '테이블을 찾을 수 없습니다.';
+        } else {
+          errorMessage = serverMessage;
         }
-        showNotification(errorMessage, 'error');
       }
+      showNotification(errorMessage, 'error');
       throw error;
     }
-  }, [showNotification, refetchCurrentPage, buildErrorMessage]);
-
-  const handleBatchUpload = useCallback(async (selectedFiles) => {
-    try {
-      const response = await uploadQaFilesBatch(selectedFiles);
-      const data = response.data ?? {};
-      const uploadedFiles = data.uploadedFiles ?? [];
-      const failedFiles = data.failedFiles ?? [];
-
-      if (uploadedFiles.length > 0) {
-        showNotification(`${uploadedFiles.length}개 파일이 업로드되었습니다.`, 'success');
-        refetchCurrentPage();
-      }
-
-      if (failedFiles.length > 0) {
-        failedFiles.forEach((item) => {
-          const reason = item.reason || '업로드에 실패했습니다.';
-          const name = item.fileName || '알 수 없는 파일';
-          showNotification(`${name}: ${reason}`, 'warning');
-        });
-      }
-
-      setFailedUploads(failedFiles);
-      return data;
-    } catch (error) {
-      if (error.response?.status === 409) {
-        const message = error.response?.data?.message || '이미 업로드 된 파일입니다.';
-        showNotification(message, 'warning');
-      } else {
-        const errorMessage = buildErrorMessage(error, '다중 업로드에 실패했습니다.');
-        showNotification(errorMessage, 'error');
-      }
-      throw error;
-    }
-  }, [showNotification, refetchCurrentPage, buildErrorMessage]);
+  }, [showNotification, fetchFiles, buildErrorMessage]);
 
   const handleOpenDetail = (fileId) => {
+    // 같은 화면에서 상세 페이지로 이동
     navigate(`/qa/files/${fileId}`);
   };
 
@@ -198,47 +115,12 @@ const QA = () => {
     try {
       await deleteQaFile(fileId);
       showNotification('파일이 삭제되었습니다.', 'success');
-      refetchCurrentPage();
+      fetchFiles(); // 목록 새로고침
     } catch (error) {
       const errorMessage = error.response?.data?.message || '파일 삭제에 실패했습니다.';
       showNotification(errorMessage, 'error');
     }
   };
-
-  const handlePageChange = (nextPage) => {
-    if (nextPage < 0) {
-      return;
-    }
-    if (totalPages && nextPage >= totalPages) {
-      return;
-    }
-    if (nextPage === page) {
-      return;
-    }
-
-    setPage(nextPage);
-  };
-
-  const handleSearchInputChange = (event) => {
-    setSearchInput(event.target.value);
-  };
-
-  const handleSearchSubmit = (event) => {
-    event.preventDefault();
-    setPage(0);
-    setKeyword(searchInput.trim());
-  };
-
-  const handleResetSearch = () => {
-    if (!searchInput && !keyword) {
-      return;
-    }
-    setSearchInput('');
-    setKeyword('');
-    setPage(0);
-  };
-
-  const hasPagination = totalPages > 1;
 
   return (
     <div className="page-container">
@@ -248,38 +130,11 @@ const QA = () => {
       />
       <h1 className="page-title">QA 파일 관리</h1>
       <div className="page-content">
-        <div className="action-buttons" style={{ marginBottom: '20px' }}>
-          <LocalFileUploader 
-            onExcelUpload={handleExcelUpload}
-            onHtmlUpload={handleHtmlUpload}
-            onBatchUpload={handleBatchUpload}
-            maxBatchCount={MAX_BATCH_COUNT}
-          />
-        </div>
-
-        <form className="search-section" onSubmit={handleSearchSubmit}>
-          <input
-            className="search-input"
-            type="text"
-            placeholder="파일명 또는 확인 사항으로 검색"
-            value={searchInput}
-            onChange={handleSearchInputChange}
-          />
-          <button className="btn-primary" type="submit">
-            검색
-          </button>
-          <button 
-            className="btn-secondary" 
-            type="button" 
-            onClick={handleResetSearch}
-            disabled={!keyword && !searchInput}
-          >
-            초기화
-          </button>
-        </form>
-
-        <div className="table-meta">
-          {`총 ${totalElements}건`}
+          <div className="action-buttons" style={{ marginBottom: '20px' }}>
+            <LocalFileUploader 
+              onExcelUpload={handleExcelUpload}
+              onHtmlUpload={handleHtmlUpload}
+            />
         </div>
 
         <div className="table-container">
@@ -344,51 +199,6 @@ const QA = () => {
             </tbody>
           </table>
         </div>
-
-        {hasPagination && (
-          <div className="pagination">
-            <button
-              type="button"
-              className="pagination__button"
-              onClick={() => handlePageChange(page - 1)}
-              disabled={page === 0}
-            >
-              이전
-            </button>
-            {Array.from({ length: totalPages }, (_, index) => (
-              <button
-                key={`page-${index}`}
-                type="button"
-                className={`pagination__button${page === index ? ' active' : ''}`}
-                onClick={() => handlePageChange(index)}
-              >
-                {index + 1}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="pagination__button"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={totalPages !== 0 && page >= totalPages - 1}
-            >
-              다음
-            </button>
-          </div>
-        )}
-
-        {failedUploads.length > 0 && (
-          <div className="upload-feedback">
-            <h3>업로드 실패 파일</h3>
-            <ul>
-              {failedUploads.map((item, index) => (
-                <li key={`${item.fileName || 'unknown'}-${index}`}>
-                  <span className="upload-feedback__name">{item.fileName || `파일 ${index + 1}`}</span>
-                  <span className="upload-feedback__reason">{item.reason || '원인을 확인할 수 없습니다.'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );
