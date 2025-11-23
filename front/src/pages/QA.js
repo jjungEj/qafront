@@ -11,7 +11,6 @@
 * 								- 파일 상세 페이지로 이동 기능
 */
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
   uploadQaFile,
   uploadQaHtmlFile,
@@ -24,10 +23,10 @@ import { formatDateTime, formatFileSize } from '../utils/format';
 import LocalFileUploader from '../components/LocalFileUploader';
 import { NotificationContainer } from '../components/Notification';
 import Modal from '../components/Modal';
+import QADetail from './QADetail';
 import './Page.css';
 
 const QA = () => {
-  const navigate = useNavigate();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
@@ -37,7 +36,8 @@ const QA = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateFiles, setDuplicateFiles] = useState([]);
-  const pageSize = 10;
+  const [selectedFileId, setSelectedFileId] = useState(null);
+  const pageSize = 5;
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -98,7 +98,12 @@ const QA = () => {
       const response = await uploadQaFile(file);
       showNotification('파일이 성공적으로 업로드되었습니다.', 'success');
       setCurrentPage(0);
-      fetchFiles(0, searchKeyword);
+      fetchFiles(0, searchKeyword).then(() => {
+        // 업로드 성공한 파일을 자동으로 선택
+        if (response.data && response.data.id) {
+          setSelectedFileId(response.data.id);
+        }
+      });
       return response.data;
     } catch (error) {
       // 409 에러 처리 (중복 파일)
@@ -120,7 +125,12 @@ const QA = () => {
       const response = await uploadQaHtmlFile(file);
       showNotification('HTML 파일이 성공적으로 업로드되었습니다.', 'success');
       setCurrentPage(0);
-      fetchFiles(0, searchKeyword);
+      fetchFiles(0, searchKeyword).then(() => {
+        // 업로드 성공한 파일을 자동으로 선택
+        if (response.data && response.data.id) {
+          setSelectedFileId(response.data.id);
+        }
+      });
       return response.data;
     } catch (error) {
       // 409 에러 처리 (중복 파일)
@@ -172,10 +182,16 @@ const QA = () => {
         showNotification(`업로드 실패: ${errorCount}개`, 'error');
       }
       
-      // 목록 새로고침
+      // 목록 새로고침 및 첫 번째 파일 자동 선택
       if (successCount > 0) {
         setCurrentPage(0);
-        fetchFiles(0, searchKeyword);
+        fetchFiles(0, searchKeyword).then(() => {
+          // 업로드 성공한 첫 번째 파일을 자동으로 선택
+          if (result.successFiles && result.successFiles.length > 0) {
+            const firstFile = result.successFiles[0];
+            setSelectedFileId(firstFile.id);
+          }
+        });
       }
       
       return result;
@@ -186,9 +202,9 @@ const QA = () => {
     }
   }, [showNotification, fetchFiles, buildErrorMessage, searchKeyword]);
 
-  const handleOpenDetail = (fileId) => {
-    // 같은 화면에서 상세 페이지로 이동
-    navigate(`/qa/files/${fileId}`);
+  const handleSelectFile = (fileId) => {
+    // 파일 선택 (상세 화면 표시)
+    setSelectedFileId(fileId);
   };
 
   const handleDeleteFile = async (fileId, fileName) => {
@@ -199,6 +215,11 @@ const QA = () => {
     try {
       await deleteQaFile(fileId);
       showNotification('파일이 삭제되었습니다.', 'success');
+      // 삭제 후 선택된 파일이 삭제된 파일이면 선택 해제
+      if (selectedFileId === fileId) {
+        setSelectedFileId(null);
+      }
+      
       // 삭제 후 현재 페이지 유지 (마지막 페이지의 마지막 항목 삭제 시 이전 페이지로 이동)
       const newPage = pageData && files.length === 1 && currentPage > 0 
         ? currentPage - 1 
@@ -301,7 +322,7 @@ const QA = () => {
                 <th>파일명</th>
                 <th>파일 크기</th>
                 <th>타입</th>
-                <th>피드백</th>
+                <th>상태</th>
                 <th>업로드 일시</th>
                 <th>작업</th>
               </tr>
@@ -319,38 +340,59 @@ const QA = () => {
                 </tr>
               ) : (
                 files.map((file) => (
-                  <tr key={file.id}>
-                    <td>{file.fileName}</td>
+                  <tr 
+                    key={file.id}
+                    style={{ 
+                      cursor: 'pointer',
+                      backgroundColor: selectedFileId === file.id ? '#e3f2fd' : 'transparent'
+                    }}
+                    onClick={() => handleSelectFile(file.id)}
+                  >
+                    <td style={{ fontWeight: selectedFileId === file.id ? 'bold' : 'normal' }}>
+                      {file.fileName}
+                    </td>
                     <td>{formatFileSize(file.fileSize)}</td>
                     <td>{file.fileType?.toUpperCase() || '-'}</td>
-                    <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {file.feedback || '-'}
+                    <td>
+                      {file.updatedAt && file.updatedAt !== file.uploadedAt ? (
+                        <span style={{ 
+                          color: '#10b981', 
+                          fontWeight: 'bold',
+                          padding: '4px 8px',
+                          backgroundColor: '#d1fae5',
+                          borderRadius: '4px'
+                        }}>
+                          수정완료
+                        </span>
+                      ) : (
+                        <span style={{ 
+                          color: '#6b7280', 
+                          fontWeight: 'bold',
+                          padding: '4px 8px',
+                          backgroundColor: '#f3f4f6',
+                          borderRadius: '4px'
+                        }}>
+                          대기
+                        </span>
+                      )}
                     </td>
                     <td>{formatDateTime(file.uploadedAt)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
-                          className="btn-view" 
-                          onClick={() => handleOpenDetail(file.id)}
-                        >
-                          전체 보기
-                        </button>
-                        <button 
-                          className="btn-secondary" 
-                          onClick={() => handleDeleteFile(file.id, file.fileName)}
-                          style={{ 
-                            backgroundColor: '#dc3545', 
-                            color: 'white',
-                            border: 'none',
-                            padding: '6px 12px',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                          }}
-                          title="파일 삭제"
-                        >
-                          삭제
-                        </button>
-                      </div>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        className="btn-secondary" 
+                        onClick={() => handleDeleteFile(file.id, file.fileName)}
+                        style={{ 
+                          backgroundColor: '#dc3545', 
+                          color: 'white',
+                          border: 'none',
+                          padding: '6px 12px',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                        title="파일 삭제"
+                      >
+                        삭제
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -388,6 +430,16 @@ const QA = () => {
             >
               다음
             </button>
+          </div>
+        )}
+
+        {/* 파일 상세 화면 */}
+        {selectedFileId && (
+          <div style={{ marginTop: '40px', borderTop: '2px solid #dee2e6', paddingTop: '20px' }}>
+            <QADetail 
+              fileId={selectedFileId} 
+              onClose={() => setSelectedFileId(null)}
+            />
           </div>
         )}
 

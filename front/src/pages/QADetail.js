@@ -93,8 +93,9 @@ const toTimestampNumber = (value) => {
 };
 
 
-const QADetail = () => {
-  const { id } = useParams();
+const QADetail = ({ fileId: propFileId, onClose }) => {
+  const { id: paramId } = useParams();
+  const fileId = propFileId || paramId;
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
   const [displayedUpdatedAt, setDisplayedUpdatedAt] = useState(null);
@@ -139,11 +140,11 @@ const QADetail = () => {
   }, []);
 
   const fetchFileDetail = useCallback(async () => {
-    if (!id) return;
+    if (!fileId) return;
     
     try {
       setLoading(true);
-      const response = await getQaFileDetail(id);
+      const response = await getQaFileDetail(fileId);
       const fileData = response.data;
       setFile(fileData);
       setFeedback(fileData.feedback || '');
@@ -158,11 +159,13 @@ const QADetail = () => {
       setActiveSheetIndex(0);
     } catch (error) {
       showNotification('파일 상세 정보를 불러오는데 실패했습니다.', 'error');
-      navigate('/qa');
+      if (!propFileId) {
+        navigate('/qa');
+      }
     } finally {
       setLoading(false);
     }
-  }, [id, showNotification, navigate]);
+  }, [fileId, showNotification, navigate, propFileId]);
 
   useEffect(() => {
     fetchFileDetail();
@@ -1077,9 +1080,16 @@ const QADetail = () => {
       
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 className="page-title">파일 상세 - {file.fileName}</h1>
-        <button className="btn-secondary" onClick={() => navigate('/qa')}>
-          목록으로
-        </button>
+        {propFileId && onClose && (
+          <button className="btn-secondary" onClick={onClose}>
+            닫기
+          </button>
+        )}
+        {!propFileId && (
+          <button className="btn-secondary" onClick={() => navigate('/qa')}>
+            목록으로
+          </button>
+        )}
       </div>
 
       <div className="page-content">
