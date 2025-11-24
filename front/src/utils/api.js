@@ -81,52 +81,36 @@ api.interceptors.response.use(
 // ==================== QA 파일 관리 (QA File Management) ====================
 
 /**
- * 파일 업로드 및 저장
- * 엑셀 파일(xlsx, xls, csv)을 업로드하고 HTML로 변환하여 DB에 저장
- * 
- * @param {File} file - 업로드할 엑셀 파일
- * @param {Object} config - 추가 설정 옵션 (headers 등)
- * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
- *   - id: 파일 ID
- *   - fileName: 파일명
- *   - fileSize: 파일 크기
- *   - fileType: 파일 타입
- *   - sheets: 시트 정보 배열
- * 
- * @throws {Error} 파일이 없거나 지원하지 않는 형식인 경우
- * 
- * @example
- * const file = document.querySelector('input[type="file"]').files[0];
- * const response = await uploadQaFile(file);
- * console.log(response.data.sheets); // [{ sheetName, htmlContent }, ...]
+ * 워크스페이스 목록 조회
+ * after/before/dev 각각의 페이지 정보를 포함한 폴더 상태 반환
+ *
+ * @param {Object} params
+ * @param {number} params.afterPage
+ * @param {number} params.beforePage
+ * @param {number} params.devPage
+ * @param {number} params.size
  */
-export const uploadQaFile = (file, config = {}) => {
-  if (!file) {
-    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
-  }
-
-  // FormData 생성 (multipart/form-data 형식)
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const headers = {
-    ...(config.headers || {}),
-    'Content-Type': 'multipart/form-data', // 파일 업로드를 위한 Content-Type
-  };
-
-  return api.post('/qa/upload', formData, {
-    ...config,
-    headers,
+export const getQaWorkspace = ({
+  afterPage = 0,
+  beforePage = 0,
+  devPage = 0,
+  size = 5,
+} = {}) =>
+  api.get('/qa/workspace', {
+    params: {
+      afterPage,
+      beforePage,
+      devPage,
+      size,
+    },
   });
-};
 
 /**
- * HTML 파일 업로드
- * 
+ * HTML 파일 업로드 (before 폴더)
+ *
  * @param {File} file - 업로드할 HTML 파일 (.html, .htm)
  * @param {Object} config - 추가 설정 옵션
- * @returns {Promise<AxiosResponse>} 업로드된 파일 정보
- * @throws {Error} 중복 파일인 경우 409 상태 코드와 함께 에러 반환
+ * @returns {Promise<AxiosResponse>} 업로드된 파일 메타데이터
  */
 export const uploadQaHtmlFile = (file, config = {}) => {
   if (!file) {
@@ -141,161 +125,56 @@ export const uploadQaHtmlFile = (file, config = {}) => {
     'Content-Type': 'multipart/form-data',
   };
 
-  return api.post('/qa/upload/html', formData, {
+  return api.post('/qa/files/html', formData, {
     ...config,
     headers,
   });
 };
 
 /**
- * 다중 파일 업로드
- * 여러 파일을 동시에 업로드 (엑셀/CSV 및 HTML 파일 모두 지원)
- * 
- * @param {File[]} files - 업로드할 파일 배열
- * @param {Object} config - 추가 설정 옵션
- * @returns {Promise<AxiosResponse>} 업로드 결과
- *   - successFiles: 성공적으로 업로드된 파일 목록
- *   - duplicateFiles: 중복된 파일 목록 [{ fileName, message }]
- *   - errorFiles: 오류가 발생한 파일 목록 [{ fileName, errorMessage }]
- * 
- * @example
- * const files = Array.from(fileInput.files);
- * const response = await uploadQaFilesMultiple(files);
- * const { successFiles, duplicateFiles, errorFiles } = response.data;
+ * HTML 파일 내용 조회
+ *
+ * @param {'after'|'before'|'dev'} folder
+ * @param {string} fileName
  */
-export const uploadQaFilesMultiple = (files, config = {}) => {
-  if (!files || files.length === 0) {
-    return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
+export const getQaFileContent = (folder, fileName) => {
+  if (!folder || !fileName) {
+    return Promise.reject(new Error('folder와 fileName이 필요합니다.'));
   }
-
-  const formData = new FormData();
-  // 여러 파일을 files 키로 추가
-  files.forEach(file => {
-    formData.append('files', file);
-  });
-
-  const headers = {
-    ...(config.headers || {}),
-    'Content-Type': 'multipart/form-data',
-  };
-
-  return api.post('/qa/upload/multiple', formData, {
-    ...config,
-    headers,
-  });
+  const safeFolder = encodeURIComponent(folder);
+  const safeFileName = encodeURIComponent(fileName);
+  return api.get(`/qa/files/${safeFolder}/${safeFileName}`);
 };
 
 /**
- * 페이징된 파일 목록 조회
- * 
- * @param {number} page - 페이지 번호 (0부터 시작, 기본값: 0)
- * @param {number} size - 페이지 크기 (기본값: 10)
- * @returns {Promise<AxiosResponse>} 페이징된 파일 목록
- *   - content: 파일 목록 배열
- *   - page: 현재 페이지 번호
- *   - size: 페이지 크기
- *   - totalElements: 전체 파일 개수
- *   - totalPages: 전체 페이지 수
- *   - hasNext: 다음 페이지 존재 여부
- *   - hasPrevious: 이전 페이지 존재 여부
- * 
- * @example
- * const response = await getQaFilesPaged(0, 10);
- * const { content, totalElements, totalPages } = response.data;
+ * before 폴더 HTML 저장
+ *
+ * @param {string} fileName - 파일명
+ * @param {string} htmlContent - 저장할 HTML 문자열
  */
-export const getQaFilesPaged = (page = 0, size = 10) => 
-  api.get('/qa/files/paged', { params: { page, size } });
+export const saveBeforeHtmlFile = (fileName, htmlContent) => {
+  if (!fileName) {
+    return Promise.reject(new Error('fileName이 필요합니다.'));
+  }
+  const safeFileName = encodeURIComponent(fileName);
+  return api.put(`/qa/files/before/${safeFileName}`, { htmlContent });
+};
 
 /**
- * 파일 검색
- * 파일명으로 파일을 검색 (페이징 지원)
- * 
- * @param {string} keyword - 검색어 (파일명에 포함된 문자열)
- * @param {number} page - 페이지 번호 (기본값: 0)
- * @param {number} size - 페이지 크기 (기본값: 10)
- * @returns {Promise<AxiosResponse>} 페이징된 검색 결과
- *   - content: 검색된 파일 목록 배열
- *   - page: 현재 페이지 번호
- *   - size: 페이지 크기
- *   - totalElements: 전체 검색 결과 개수
- *   - totalPages: 전체 페이지 수
- *   - hasNext: 다음 페이지 존재 여부
- *   - hasPrevious: 이전 페이지 존재 여부
- * 
- * @example
- * const response = await searchQaFiles('example', 0, 10);
- * const { content, totalElements } = response.data;
+ * JSONL 변환 (after 폴더에 저장)
+ *
+ * @param {Object} data - HtmlUpdateRequest 형태의 payload
  */
-export const searchQaFiles = (keyword, page = 0, size = 10) => 
-  api.get('/qa/files/search', { params: { keyword, page, size } });
+export const convertHtmlToJsonl = (data) =>
+  api.post('/qa/convert/jsonl', data);
 
 /**
- * 파일 상세 조회
- * 특정 파일의 상세 정보와 모든 시트의 HTML 내용을 조회
- * 
- * @param {number} id - 파일 ID
- * @returns {Promise<AxiosResponse>} 파일 상세 정보
- *   - id, fileName, fileSize, fileType, feedback
- *   - sheets: [{ id, sheetName, sheetOrder, htmlContent }, ...]
- * 
- * @throws {Error} 파일을 찾을 수 없으면 404 에러
+ * after → dev 승격
+ *
+ * @param {string} fileName - 승격할 JSONL 파일명
  */
-export const getQaFileDetail = (id) => api.get(`/qa/files/${id}`);
-
-/**
- * 피드백 저장
- * 파일의 확인 사항(피드백)을 저장
- * 
- * @param {number} id - 파일 ID
- * @param {string} feedback - 피드백 내용
- * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
- * 
- * @throws {Error} 피드백이 비어있으면 400 에러, 파일을 찾을 수 없으면 404 에러
- */
-export const saveQaFileFeedback = (id, feedback) => 
-  api.put(`/qa/files/${id}/feedback`, { feedback });
-
-/**
- * JSONL 변환
- * 수정된 HTML을 JSONL 형식으로 변환하여 다운로드
- * 
- * @param {Object} data - 변환할 데이터
- *   - fileName: 파일명
- *   - sheets: [{ sheetName, htmlContent, imageBase64 }, ...]
- * @returns {Promise<AxiosResponse>} JSONL 파일 (Blob)
- * 
- * 응답 형식:
- * - Content-Type: application/octet-stream
- * - Body: JSONL 파일 바이너리
- * 
- * JSONL 형식: 각 줄은 {"image":"", "html":"<table>...</table>"} 형식
- */
-export const convertQaFileToJsonl = (data) => 
-  api.post('/qa/convert/jsonl', data, { responseType: 'blob' });
-
-/**
- * 편집된 시트 저장
- * 수정된 HTML 내용을 서버에 저장
- * 
- * @param {number} id - 파일 ID
- * @param {Array} sheets - 저장할 시트 배열 [{ id, htmlContent }, ...]
- * @returns {Promise<AxiosResponse>} 업데이트된 파일 정보
- * 
- * @throws {Error} 파일을 찾을 수 없으면 404 에러
- */
-export const saveQaFileSheets = (id, sheets) => 
-  api.put(`/qa/files/${id}/sheets`, { sheets });
-
-/**
- * 파일 삭제
- * 
- * @param {number} id - 파일 ID
- * @returns {Promise<AxiosResponse>} 삭제 성공 응답
- * 
- * @throws {Error} 파일을 찾을 수 없으면 404 에러
- */
-export const deleteQaFile = (id) => 
-  api.delete(`/qa/files/${id}`);
+export const promoteAfterFile = (fileName) =>
+  api.post('/qa/files/after/promote', { fileName });
 
 export default api;
 

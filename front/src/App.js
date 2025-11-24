@@ -14,7 +14,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import EmptyPage from './pages/EmptyPage';
 import QA from './pages/QA';
-import QADetail from './pages/QADetail';
 import './App.css';
 
 function App() {
@@ -29,7 +28,6 @@ function App() {
           <Route path="/results" element={<EmptyPage title="결과" />} />
           <Route path="/results/:id" element={<EmptyPage title="결과 조회" />} />
           <Route path="/qa" element={<QA />} />
-          <Route path="/qa/files/:id" element={<QADetail />} />
         </Routes>
       </Layout>
     </Router>
