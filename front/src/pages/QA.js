@@ -112,6 +112,7 @@ const QA = () => {
   const [notifications, setNotifications] = useState([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [beforeSearchKeyword, setBeforeSearchKeyword] = useState('');
   const [selectedBeforeFile, setSelectedBeforeFile] = useState(null);
   const [beforeHtml, setBeforeHtml] = useState('');
   const [editedHtml, setEditedHtml] = useState('');
@@ -185,6 +186,7 @@ const QA = () => {
         beforePage: override.beforePage ?? pages.before,
         devPage: override.devPage ?? pages.dev,
         size: override.size ?? DEFAULT_PAGE_SIZE,
+        beforeKeyword: override.beforeKeyword !== undefined ? override.beforeKeyword : (beforeSearchKeyword || null),
       };
 
       setLoadingWorkspace(true);
@@ -251,7 +253,7 @@ const QA = () => {
         setLoadingWorkspace(false);
       }
     },
-    [pages.after, pages.before, pages.dev, showNotification]
+    [pages.after, pages.before, pages.dev, beforeSearchKeyword, showNotification]
   );
 
   useEffect(() => {
@@ -269,6 +271,7 @@ const QA = () => {
       handleSelectBeforeFile(match);
       setPendingSelectBeforeFileName(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSelectBeforeFileName, workspace.before.files]);
 
   useEffect(() => {
@@ -276,16 +279,32 @@ const QA = () => {
   }, [historyIndex]);
 
   const handleBeforeUploadChange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
       return;
     }
+    
     setIsUploading(true);
     try {
-      const response = await uploadQaHtmlFile(file);
-      const uploadedFileName = response.data?.fileName || file.name;
-      showNotification(`"${uploadedFileName}" 파일이 업로드되었습니다.`, 'success');
-      setPendingSelectBeforeFileName(uploadedFileName);
+      const fileArray = Array.from(files);
+      const response = await uploadQaHtmlFile(fileArray);
+      
+      // 응답이 배열인지 객체인지 확인
+      const result = response.data;
+      const uploadedFiles = Array.isArray(result) ? result : [result];
+      
+      if (uploadedFiles.length === 1) {
+        const uploadedFileName = uploadedFiles[0]?.fileName || fileArray[0].name;
+        showNotification(`"${uploadedFileName}" 파일이 업로드되었습니다.`, 'success');
+        setPendingSelectBeforeFileName(uploadedFileName);
+      } else {
+        showNotification(`${uploadedFiles.length}개 파일이 업로드되었습니다.`, 'success');
+        // 다중 업로드 시 첫 번째 파일 선택
+        if (uploadedFiles.length > 0 && uploadedFiles[0]?.fileName) {
+          setPendingSelectBeforeFileName(uploadedFiles[0].fileName);
+        }
+      }
+      
       await fetchWorkspace({ beforePage: 0 });
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 파일 업로드에 실패했습니다.';
@@ -467,7 +486,7 @@ const QA = () => {
         sheets: sheets
       };
       
-      const response = await convertHtmlToJsonl(payload);
+      await convertHtmlToJsonl(payload);
       
       // 백엔드에서 이미 after 폴더에 저장하므로 다운로드 대신 워크스페이스 새로고침
       const jsonlFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') + '.jsonl';
@@ -889,12 +908,51 @@ const QA = () => {
     });
   };
 
-  const handleToggleAllAfterOnPage = (checked) => {
-    const currentFileNames = workspace.after.files.map((file) => file.fileName);
-    if (checked) {
-      setSelectedAfterFiles((prev) => Array.from(new Set([...prev, ...currentFileNames])));
-    } else {
-      setSelectedAfterFiles((prev) => prev.filter((name) => !currentFileNames.includes(name)));
+  const handleToggleAllAfter = async (checked) => {
+    if (!checked) {
+      // 체크 해제 시 모든 선택 해제
+      setSelectedAfterFiles([]);
+      return;
+    }
+
+    // after 폴더의 모든 파일 가져오기 (모든 페이지)
+    try {
+      const allFiles = [];
+      let currentPage = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const response = await getQaWorkspace({
+          afterPage: currentPage,
+          beforePage: pages.before,
+          devPage: pages.dev,
+          size: 100, // 큰 사이즈로 한 번에 가져오기
+        });
+        
+        const data = response.data || {};
+        let afterData = null;
+        
+        if (Array.isArray(data)) {
+          afterData = data.find(item => item.folder === 'after');
+        } else if (data.after) {
+          afterData = data.after;
+        }
+        
+        if (afterData && Array.isArray(afterData.files)) {
+          allFiles.push(...afterData.files);
+          hasMore = currentPage < (afterData.totalPages - 1);
+          currentPage++;
+        } else {
+          hasMore = false;
+        }
+      }
+      
+      const allFileNames = allFiles.map((file) => file.fileName);
+      setSelectedAfterFiles(Array.from(new Set(allFileNames)));
+      showNotification(`전체 ${allFileNames.length}개 파일이 선택되었습니다.`, 'success');
+    } catch (error) {
+      console.error('전체 파일 가져오기 실패:', error);
+      showNotification('전체 파일 선택에 실패했습니다.', 'error');
     }
   };
 
@@ -967,22 +1025,25 @@ const QA = () => {
     const pageNumbers = getPageNumbers();
     
     return (
-      <div className="pagination" style={{ justifyContent: 'flex-end', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button
-          className="btn-secondary"
-          onClick={() => handleFolderPageChange(folderKey, 0)}
-          disabled={currentPage === 0 || loadingWorkspace}
-          style={{ minWidth: '40px' }}
-        >
-          처음
-        </button>
+      <div className="pagination" style={{ 
+        justifyContent: 'center', 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '4px',
+        marginTop: '16px',
+      }}>
         <button
           className="btn-secondary"
           onClick={() => handleFolderPageChange(folderKey, currentPage - 1)}
           disabled={currentPage === 0 || loadingWorkspace}
-          style={{ minWidth: '40px' }}
+          style={{ 
+            minWidth: '36px',
+            height: '36px',
+            padding: '0',
+            fontSize: '14px',
+          }}
         >
-          이전
+          ‹
         </button>
         {pageNumbers.map((pageNum) => (
           <button
@@ -991,8 +1052,11 @@ const QA = () => {
             onClick={() => handleFolderPageChange(folderKey, pageNum)}
             disabled={loadingWorkspace}
             style={{
-              minWidth: '40px',
-              fontWeight: pageNum === currentPage ? 'bold' : 'normal',
+              minWidth: '36px',
+              height: '36px',
+              padding: '0',
+              fontSize: '14px',
+              fontWeight: pageNum === currentPage ? '600' : '400',
             }}
           >
             {pageNum + 1}
@@ -1002,21 +1066,15 @@ const QA = () => {
           className="btn-secondary"
           onClick={() => handleFolderPageChange(folderKey, currentPage + 1)}
           disabled={currentPage >= totalPages - 1 || loadingWorkspace}
-          style={{ minWidth: '40px' }}
+          style={{ 
+            minWidth: '36px',
+            height: '36px',
+            padding: '0',
+            fontSize: '14px',
+          }}
         >
-          다음
+          ›
         </button>
-        <button
-          className="btn-secondary"
-          onClick={() => handleFolderPageChange(folderKey, totalPages - 1)}
-          disabled={currentPage >= totalPages - 1 || loadingWorkspace}
-          style={{ minWidth: '40px' }}
-        >
-          마지막
-        </button>
-        <span style={{ color: '#6b7280', marginLeft: '8px' }}>
-          ({currentPage + 1} / {totalPages})
-        </span>
       </div>
     );
   };
@@ -1025,7 +1083,6 @@ const QA = () => {
     const folderData = workspace[folderKey] || createFolderState();
     const isAfter = folderKey === 'after';
     const isBefore = folderKey === 'before';
-    const selectedBeforeName = selectedBeforeFile?.fileName;
     
     // 안전성 체크
     if (!folderData || !Array.isArray(folderData.files)) {
@@ -1033,20 +1090,26 @@ const QA = () => {
     }
 
   return (
-      <section key={folderKey} style={{ marginBottom: '32px' }}>
+      <section key={folderKey} style={{ 
+        marginBottom: '16px',
+        height: '400px',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: '12px',
-            gap: '16px',
+            marginBottom: '8px',
+            gap: '12px',
             flexWrap: 'wrap',
+            flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <h2 style={{ margin: 0 }}>{FOLDER_LABELS[folderKey]}</h2>
-            <span style={{ color: '#6b7280' }}>{folderData.totalElements || 0}개</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>{FOLDER_LABELS[folderKey]}</h2>
+            <span style={{ color: '#6b7280', fontSize: '13px' }}>{folderData.totalElements || 0}개</span>
           </div>
           {isAfter && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1054,13 +1117,13 @@ const QA = () => {
                 <input
                   type="checkbox"
                   checked={
-                    folderData.files.length > 0 &&
-                    folderData.files.every((file) => selectedAfterFiles.includes(file.fileName))
+                    workspace.after.totalElements > 0 &&
+                    workspace.after.totalElements === selectedAfterFiles.length
                   }
-                  onChange={(e) => handleToggleAllAfterOnPage(e.target.checked)}
-                  disabled={folderData.files.length === 0}
+                  onChange={(e) => handleToggleAllAfter(e.target.checked)}
+                  disabled={workspace.after.totalElements === 0}
                 />
-                페이지 전체 선택
+                전체 선택
               </label>
               <button
                 className="btn-primary"
@@ -1071,13 +1134,54 @@ const QA = () => {
               </button>
             </div>
           )}
+          {isBefore && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="파일명 검색..."
+                value={beforeSearchKeyword}
+                onChange={(e) => setBeforeSearchKeyword(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    fetchWorkspace({ beforePage: 0, beforeKeyword: beforeSearchKeyword });
+                  }
+                }}
+                style={{
+                  padding: '8px 12px',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  minWidth: '200px',
+                }}
+              />
+              <button
+                className="btn-secondary"
+                onClick={() => fetchWorkspace({ beforePage: 0, beforeKeyword: beforeSearchKeyword })}
+                disabled={loadingWorkspace}
+              >
+                검색
+              </button>
+              {beforeSearchKeyword && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setBeforeSearchKeyword('');
+                    fetchWorkspace({ beforePage: 0, beforeKeyword: '' });
+                  }}
+                  disabled={loadingWorkspace}
+                >
+                  초기화
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="table-container">
+        <div className="table-container" style={{ flex: '1 1 auto', overflow: 'auto', minHeight: 0 }}>
           <table className="data-table">
-            <thead>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2c3e50' }}>
               <tr>
-                {isAfter && <th style={{ width: '48px' }}>선택</th>}
+                {isAfter && <th style={{ width: '48px' }}>☑️</th>}
                 <th>파일명</th>
                 <th>파일 크기</th>
                 <th>최종 수정</th>
@@ -1099,15 +1203,29 @@ const QA = () => {
                 </tr>
               ) : (
                 (folderData.files || []).map((file) => {
-                  const isBeforeActive = isBefore && selectedBeforeName === file.fileName;
                   return (
                     <tr
                       key={`${folderKey}-${file.fileName}`}
+                      className="data-table-row"
                       style={{
                         cursor: isBefore ? 'pointer' : 'default',
-                        backgroundColor: isBeforeActive ? '#e3f2fd' : 'transparent',
+                        outline: 'none',
+                        border: 'none',
+                        boxShadow: 'none',
                       }}
-                      onClick={() => {
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        if (isBefore) {
+                          handleSelectBeforeFile({ folder: folderKey, ...file });
+                        }
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.blur();
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.blur();
                         if (isBefore) {
                           handleSelectBeforeFile({ folder: folderKey, ...file });
                         }
@@ -1125,7 +1243,7 @@ const QA = () => {
                           />
                     </td>
                       )}
-                      <td style={{ fontWeight: isBeforeActive ? 600 : 400 }}>{file.fileName}</td>
+                      <td>{file.fileName}</td>
                       <td>{file.fileSize ? formatFileSize(file.fileSize) : '-'}</td>
                       <td>{file.lastModifiedAt ? formatDateTime(file.lastModifiedAt) : '-'}</td>
                       <td
@@ -1136,7 +1254,13 @@ const QA = () => {
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {file.absolutePath || '-'}
+                        {(() => {
+                          if (!file.absolutePath) return '-';
+                          // /before, /after, /dev 부분만 추출
+                          const path = file.absolutePath.replace(/\\/g, '/');
+                          const match = path.match(/\/(before|after|dev)(?:\/|$)/);
+                          return match ? `/${match[1]}` : file.absolutePath;
+                        })()}
                     </td>
                   </tr>
                   );
@@ -1145,7 +1269,9 @@ const QA = () => {
             </tbody>
           </table>
         </div>
-        {renderPagination(folderKey)}
+        <div style={{ flexShrink: 0 }}>
+          {renderPagination(folderKey)}
+        </div>
       </section>
     );
   };
@@ -1156,7 +1282,7 @@ const QA = () => {
         notifications={notifications}
         removeNotification={removeNotification}
       />
-      <h1 className="page-title">QA 워크스페이스</h1>
+      <h1 className="page-title">QA</h1>
       <div className="page-content">
         <div
           style={{
@@ -1167,46 +1293,47 @@ const QA = () => {
             marginBottom: '24px',
           }}
         >
+          <button className="btn-secondary" onClick={() => fetchWorkspace()} disabled={loadingWorkspace}>
+            🔄
+          </button>
           <div>
             <label className="form-label">HTML 파일 업로드 (자동으로 Before 폴더에 저장)</label>
             <input
               type="file"
               accept=".html,.htm"
+              multiple
               onChange={handleBeforeUploadChange}
               disabled={isUploading}
             />
             {isUploading && <p style={{ color: '#6b7280', marginTop: '4px' }}>업로드 중...</p>}
           </div>
-          <button className="btn-secondary" onClick={() => fetchWorkspace()} disabled={loadingWorkspace}>
-            워크스페이스 새로고침
-          </button>
         </div>
 
         {FOLDER_KEYS.map((folderKey) => renderFolderSection(folderKey))}
 
         <section style={{ marginTop: '48px' }}>
-          <h2 style={{ marginBottom: '16px' }}>Before HTML 편집</h2>
           {!selectedBeforeFile ? (
             <p style={{ color: '#6b7280' }}>수정할 Before 파일을 선택해주세요.</p>
           ) : (
             <div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
-                <div>
-                  <strong>파일명:</strong> {selectedBeforeFile.fileName}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+                  <div>
+                    <strong>파일명:</strong> {selectedBeforeFile.fileName}
+                  </div>
+                  <div>
+                    <strong>크기:</strong>{' '}
+                    {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
+                  </div>
+                  <div>
+                    <strong>최종 수정:</strong>{' '}
+                    {selectedBeforeFile.lastModifiedAt
+                      ? formatDateTime(selectedBeforeFile.lastModifiedAt)
+                      : '-'}
+                  </div>
                 </div>
-                <div>
-                  <strong>크기:</strong>{' '}
-                  {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
-                </div>
-                <div>
-                  <strong>최종 수정:</strong>{' '}
-                  {selectedBeforeFile.lastModifiedAt
-                    ? formatDateTime(selectedBeforeFile.lastModifiedAt)
-                    : '-'}
-                </div>
-              </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
                 <button
                   className={isEditingTable ? 'btn-primary' : 'btn-secondary'}
                   onClick={toggleEditMode}
@@ -1263,6 +1390,7 @@ const QA = () => {
                     )}
                   </>
                 )}
+                </div>
               </div>
 
               <div style={{ marginBottom: '24px' }}>
@@ -1303,9 +1431,9 @@ const QA = () => {
                   <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
                     HTML 내용이 없습니다.
                   </div>
-                )}
+                    )}
+                </div>
               </div>
-            </div>
           )}
         </section>
       </div>

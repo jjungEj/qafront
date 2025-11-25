@@ -89,36 +89,56 @@ api.interceptors.response.use(
  * @param {number} params.beforePage
  * @param {number} params.devPage
  * @param {number} params.size
+ * @param {string} params.beforeKeyword - before 폴더 파일명 검색어 (선택사항)
  */
 export const getQaWorkspace = ({
   afterPage = 0,
   beforePage = 0,
   devPage = 0,
   size = 5,
-} = {}) =>
-  api.get('/qa/workspace', {
-    params: {
-      afterPage,
-      beforePage,
-      devPage,
-      size,
-    },
-  });
+  beforeKeyword = null,
+} = {}) => {
+  const params = {
+    afterPage,
+    beforePage,
+    devPage,
+    size,
+  };
+  
+  // beforeKeyword가 있을 때만 추가
+  if (beforeKeyword && beforeKeyword.trim()) {
+    params.beforeKeyword = beforeKeyword.trim();
+  }
+  
+  return api.get('/qa/workspace', { params });
+};
 
 /**
  * HTML 파일 업로드 (before 폴더)
+ * 단일 파일 또는 다중 파일 업로드 지원
  *
- * @param {File} file - 업로드할 HTML 파일 (.html, .htm)
+ * @param {File|File[]} fileOrFiles - 업로드할 HTML 파일 (.html, .htm) 또는 파일 배열
  * @param {Object} config - 추가 설정 옵션
- * @returns {Promise<AxiosResponse>} 업로드된 파일 메타데이터
+ * @returns {Promise<AxiosResponse>} 업로드된 파일 메타데이터 (단일: 객체, 다중: 배열)
  */
-export const uploadQaHtmlFile = (file, config = {}) => {
-  if (!file) {
+export const uploadQaHtmlFile = (fileOrFiles, config = {}) => {
+  if (!fileOrFiles) {
     return Promise.reject(new Error('업로드할 파일이 필요합니다.'));
   }
 
   const formData = new FormData();
-  formData.append('file', file);
+  const isMultiple = Array.isArray(fileOrFiles) || (fileOrFiles instanceof FileList);
+  
+  if (isMultiple) {
+    // 다중 파일 업로드
+    const files = Array.isArray(fileOrFiles) ? fileOrFiles : Array.from(fileOrFiles);
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+  } else {
+    // 단일 파일 업로드
+    formData.append('file', fileOrFiles);
+  }
 
   const headers = {
     ...(config.headers || {}),
