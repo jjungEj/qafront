@@ -18,6 +18,7 @@ import {
   saveBeforeHtmlFile,
   convertHtmlToJsonl,
   promoteAfterFile,
+  startInferenceResultJob,
 } from '../utils/api';
 import { formatDateTime, formatFileSize } from '../utils/format';
 import { NotificationContainer } from '../components/Notification';
@@ -964,18 +965,35 @@ const QA = () => {
     for (const fileName of selectedAfterFiles) {
       try {
         const response = await promoteAfterFile(fileName);
-        const folder = response.data?.folder || '';
-        if (folder.toLowerCase() === 'dev') {
-          showNotification(`"${fileName}" 파일이 Dev 폴더로 이동했습니다.`, 'success');
-        } else {
+        const responseData = response.data?.data ?? response.data;
+        const pathPayload = Array.isArray(responseData) ? responseData : [];
+
+        if (pathPayload.length === 0) {
           showNotification(
-            `"${fileName}" 파일이 Dev 폴더로 이동하지 않았습니다. (응답 폴더: ${folder || '알 수 없음'})`,
+            `"${fileName}" 파일 이동 응답이 비어 있어 배치 작업을 실행할 수 없습니다.`,
             'warning'
           );
+          continue;
+        }
+
+        showNotification(`"${fileName}" 파일이 Dev 폴더로 이동했습니다. 배치를 시작합니다.`, 'success');
+
+        try {
+          const batchResponse = await startInferenceResultJob(pathPayload);
+          const batchResult = batchResponse.data?.result || 'UNKNOWN';
+          const batchMessage = batchResponse.data?.message || '배치 작업이 완료되었습니다.';
+          const isSuccess = batchResult.toUpperCase() === 'SUCCESS';
+          showNotification(
+            `"${fileName}" 배치 결과: ${batchMessage}`,
+            isSuccess ? 'success' : 'warning'
+          );
+        } catch (batchError) {
+          const batchMessage = batchError.response?.data?.message || '배치 API 호출에 실패했습니다.';
+          showNotification(`"${fileName}" 배치 실패: ${batchMessage}`, 'error');
         }
       } catch (error) {
-        const message = error.response?.data?.message || '업로드드에 실패했습니다.';
-        showNotification(`"${fileName}" 업로드드 실패: ${message}`, 'error');
+        const message = error.response?.data?.message || '파일 이동에 실패했습니다.';
+        showNotification(`"${fileName}" 이동 실패: ${message}`, 'error');
       }
     }
     setSelectedAfterFiles([]);
