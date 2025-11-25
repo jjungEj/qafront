@@ -172,9 +172,20 @@ export const convertHtmlToJsonl = (data) =>
  * after → dev 승격
  *
  * @param {string} fileName - 승격할 JSONL 파일명
+ * @returns {Promise<AxiosResponse<Array<{maskedFilePath: string, jsonlFilePath: string}>>>}
+ * 응답은 배치 API에 전달할 경로 정보 배열
  */
 export const promoteAfterFile = (fileName) =>
   api.post('/qa/files/after/promote', { fileName });
+
+/**
+ * inferenceResultJob 배치 실행
+ *
+ * @param {Array<{maskedFilePath: string, jsonlFilePath: string}>} requestPaths
+ * @returns {Promise<AxiosResponse<{result: string, message: string}>>}
+ */
+export const startInferenceResultJob = (requestPaths = []) =>
+  api.post('/batch/start/inferenceResultJob', requestPaths);
 
 export default api;
 
