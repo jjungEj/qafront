@@ -46,6 +46,27 @@ export function formatDateTime(dateTime) {
 }
 
 /**
+ * 날짜/시간 포맷팅 (초 제외)
+ * @param {string|Date} dateTime - 날짜/시간 문자열 또는 Date 객체
+ * @returns {string} 포맷팅된 날짜/시간 (초 제외)
+ */
+export function formatDateTimeWithoutSeconds(dateTime) {
+  if (!dateTime) return '-';
+  try {
+    const date = new Date(dateTime);
+    return date.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return dateTime;
+  }
+}
+
+/**
  * 날짜만 포맷팅 (시간 제외)
  * @param {string|Date} date - 날짜 문자열 또는 Date 객체
  * @returns {string} 포맷팅된 날짜

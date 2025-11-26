@@ -20,13 +20,12 @@ import {
   promoteAfterFile,
   startInferenceResultJob,
 } from '../utils/api';
-import { formatDateTime, formatFileSize } from '../utils/format';
+import { formatDateTime, formatDateTimeWithoutSeconds, formatFileSize } from '../utils/format';
 import { NotificationContainer } from '../components/Notification';
 import './Page.css';
 import './QADetail.css';
 
 const DEFAULT_PAGE_SIZE = 5;
-const FOLDER_KEYS = ['after', 'before', 'dev'];
 const FOLDER_LABELS = {
   after: 'After',
   before: 'Before',
@@ -476,6 +475,12 @@ const QA = () => {
     }
   };
 
+  /**
+   * HTML을 JSONL로 변환
+   * - 테이블이 2개 이상: 하나의 sheet에 모든 테이블 포함, 각 테이블 이미지를 imageBase64List 배열로 전송
+   * - 테이블이 1개: 기존 방식 유지 (imageBase64 단일 필드)
+   * - 백엔드가 각 테이블을 분리하고 각 테이블에 해당 이미지를 매핑
+   */
   const handleConvertToJsonl = async () => {
     if (!selectedBeforeFile) {
       return;
@@ -493,38 +498,119 @@ const QA = () => {
       const latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
       const sandbox = document.createElement('div');
       sandbox.innerHTML = latestHtml || '';
-      const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
-      const hasMultipleSheets = sheetContainers.length > 0;
-      const targets = hasMultipleSheets ? sheetContainers : [sandbox];
-
+      
+      // HTML에서 모든 <table> 태그 찾기
+      const tables = Array.from(sandbox.querySelectorAll('table'));
+      const tableCount = tables.length;
+      
       const sheets = [];
-      for (let index = 0; index < targets.length; index++) {
-        const section = targets[index];
-        const htmlContent = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
+      
+      // ===== 테이블이 2개 이상인 경우 =====
+      // 하나의 sheet에 모든 테이블 HTML 포함, 각 테이블 이미지를 imageBase64List 배열로 전송
+      // 백엔드가 각 테이블을 분리하고 각 테이블에 해당 이미지를 매핑
+      if (tableCount >= 2) {
+        // 전체 HTML 내용 (모든 테이블 포함)
+        const htmlContent = latestHtml.trim();
         if (!htmlContent) {
-          continue;
+          showNotification('변환할 내용이 없습니다.', 'warning');
+          return;
         }
+        
+        // 시트명 결정 (data-sheet-name 속성 또는 파일명 사용)
+        const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
         const nameCandidates = [
-          section.getAttribute('data-sheet-name'),
-          section.getAttribute('data-name'),
-          section.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
-          section.querySelector('.sheet-name')?.textContent,
-          section.querySelector('h4')?.textContent,
-          section.querySelector('caption')?.textContent,
+          sheetContainers[0]?.getAttribute('data-sheet-name'),
+          sheetContainers[0]?.getAttribute('data-name'),
+          sheetContainers[0]?.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
+          sheetContainers[0]?.querySelector('.sheet-name')?.textContent,
+          sheetContainers[0]?.querySelector('h4')?.textContent,
         ];
         const resolvedName =
           nameCandidates.find((name) => name && name.trim())?.trim() ||
-          (hasMultipleSheets ? `${baseFileName}-Sheet${index + 1}` : baseFileName) ||
-          `Sheet${index + 1}`;
-        const imageBase64 = await convertTableToImage(htmlContent, resolvedName);
+          baseFileName ||
+          'Sheet1';
+        
+        // 각 테이블마다 별도의 이미지 생성하여 imageBase64List 배열에 저장
+        const imageBase64List = [];
+        for (let index = 0; index < tables.length; index++) {
+          const table = tables[index];
+          
+          // 각 테이블을 독립적인 HTML로 감싸기 (이미지 변환을 위해)
+          const tableWrapper = document.createElement('div');
+          tableWrapper.style.backgroundColor = '#ffffff';
+          tableWrapper.style.padding = '8px';
+          const clonedTable = table.cloneNode(true);
+          tableWrapper.appendChild(clonedTable);
+          
+          const tableHtml = tableWrapper.innerHTML.trim();
+          if (!tableHtml) {
+            continue;
+          }
+          
+          // 각 테이블을 이미지로 변환 (html2canvas 사용)
+          const imageBase64 = await convertTableToImage(tableHtml, `${resolvedName}-Table${index + 1}`);
+          if (imageBase64) {
+            imageBase64List.push(imageBase64);
+          }
+        }
+        
+        // 하나의 sheet에 모든 테이블 HTML과 각 테이블 이미지 배열 전송
         sheets.push({
           sheetName: resolvedName,
-          htmlContent,
-          imageBase64: imageBase64 || '',
+          htmlContent, // 모든 테이블이 포함된 전체 HTML
+          imageBase64List: imageBase64List.length > 0 ? imageBase64List : undefined, // 각 테이블별 이미지 배열
         });
-      }
+      } 
+      // ===== 테이블이 1개인 경우 =====
+      // 기존 방식 유지: imageBase64 단일 필드 사용
+      else if (tableCount === 1) {
+        // .sheet-container가 있으면 각 컨테이너를 별도 sheet로 처리, 없으면 전체 HTML을 하나의 sheet로 처리
+        const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
+        const hasMultipleSheets = sheetContainers.length > 0;
+        const targets = hasMultipleSheets ? sheetContainers : [sandbox];
 
-      if (sheets.length === 0) {
+        for (let index = 0; index < targets.length; index++) {
+          const section = targets[index];
+          const htmlContent = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
+          if (!htmlContent) {
+            continue;
+          }
+          // 시트명 결정
+          const nameCandidates = [
+            section.getAttribute('data-sheet-name'),
+            section.getAttribute('data-name'),
+            section.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
+            section.querySelector('.sheet-name')?.textContent,
+            section.querySelector('h4')?.textContent,
+            section.querySelector('caption')?.textContent,
+          ];
+          const resolvedName =
+            nameCandidates.find((name) => name && name.trim())?.trim() ||
+            (hasMultipleSheets ? `${baseFileName}-Sheet${index + 1}` : baseFileName) ||
+            `Sheet${index + 1}`;
+          // 전체 HTML을 하나의 이미지로 변환
+          const imageBase64 = await convertTableToImage(htmlContent, resolvedName);
+          sheets.push({
+            sheetName: resolvedName,
+            htmlContent,
+            imageBase64: imageBase64 || '', // 단일 이미지 필드
+          });
+        }
+
+        // sheet가 생성되지 않은 경우 fallback 처리
+        if (sheets.length === 0) {
+          const fallbackName = baseFileName || 'Sheet1';
+          const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
+          sheets.push({
+            sheetName: fallbackName,
+            htmlContent: latestHtml,
+            imageBase64: imageBase64 || '',
+          });
+        }
+      }
+      // ===== 테이블이 없는 경우 =====
+      // 전체 HTML을 하나의 시트로 처리 (테이블이 없어도 HTML 내용이 있으면 처리)
+      else {
         const fallbackName = baseFileName || 'Sheet1';
         const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
         sheets.push({
@@ -534,16 +620,24 @@ const QA = () => {
         });
       }
 
+      // 변환할 내용이 없으면 종료
+      if (sheets.length === 0) {
+        showNotification('변환할 내용이 없습니다.', 'warning');
+        return;
+      }
+
+      // API 요청 데이터 준비
       const payload = {
         fileName: selectedBeforeFile.fileName,
-        sheets,
+        sheets, // sheets 배열: 각 sheet는 htmlContent와 imageBase64 또는 imageBase64List 포함
       };
       
+      // 백엔드 API 호출: JSONL 변환 및 After 폴더에 저장
       await convertHtmlToJsonl(payload);
       
       // 백엔드에서 이미 after 폴더에 저장하므로 다운로드 대신 워크스페이스 새로고침
       const jsonlFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') + '.jsonl';
-      showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName}`, 'success');
+      showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${sheets.length}개 시트)`, 'success');
       
       // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
       await fetchWorkspace({ afterPage: 0 });
@@ -1197,6 +1291,7 @@ const QA = () => {
             gap: '12px',
             flexWrap: 'wrap',
             flexShrink: 0,
+            minHeight: isBefore || isAfter ? '40px' : 'auto',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1282,10 +1377,10 @@ const QA = () => {
             <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2c3e50' }}>
               <tr>
                 {isAfter && <th style={{ width: '48px' }}>☑️</th>}
-                <th>파일명</th>
-                <th>파일 크기</th>
-                <th>최종 수정</th>
-                <th>경로</th>
+                <th style={{ width: isBefore || isAfter ? '200px' : 'auto' }}>파일명</th>
+                <th style={{ width: isBefore || isAfter ? '80px' : 'auto' }}>파일 크기</th>
+                <th style={{ width: isBefore || isAfter ? '140px' : 'auto' }}>최종 수정</th>
+                <th style={{ width: isBefore || isAfter ? '0px' : 'auto', display: isBefore || isAfter ? 'none' : 'table-cell' }}>경로</th>
               </tr>
             </thead>
             <tbody>
@@ -1343,15 +1438,21 @@ const QA = () => {
                           />
                     </td>
                       )}
-                      <td>{file.fileName}</td>
+                      <td style={{ 
+                        maxWidth: isBefore || isAfter ? '200px' : '360px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>{file.fileName}</td>
                       <td>{file.fileSize ? formatFileSize(file.fileSize) : '-'}</td>
-                      <td>{file.lastModifiedAt ? formatDateTime(file.lastModifiedAt) : '-'}</td>
+                      <td>{file.lastModifiedAt ? (isBefore || isAfter ? formatDateTimeWithoutSeconds(file.lastModifiedAt) : formatDateTime(file.lastModifiedAt)) : '-'}</td>
                       <td
-                          style={{ 
+                        style={{ 
                           maxWidth: '360px',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
+                          display: isBefore || isAfter ? 'none' : 'table-cell',
                         }}
                       >
                         {(() => {
@@ -1361,7 +1462,7 @@ const QA = () => {
                           const match = path.match(/\/(before|after|dev)(?:\/|$)/);
                           return match ? `/${match[1]}` : file.absolutePath;
                         })()}
-                    </td>
+                      </td>
                   </tr>
                   );
                 })
@@ -1384,18 +1485,28 @@ const QA = () => {
       />
       <h1 className="page-title">QA</h1>
       <div className="page-content">
+        {/* 새로고침 버튼 */}
         <div
           style={{
             display: 'flex',
-            flexWrap: 'wrap',
-            gap: '16px',
-            alignItems: 'center',
-            marginBottom: '24px',
+            justifyContent: 'flex-start',
+            marginBottom: '16px',
           }}
         >
           <button className="btn-secondary" onClick={() => fetchWorkspace()} disabled={loadingWorkspace}>
             🔄
           </button>
+        </div>
+
+        {/* Dev 폴더 (전체 너비) */}
+        {renderFolderSection('dev')}
+
+        {/* 파일 업로드 영역 */}
+        <div
+          style={{
+            marginBottom: '16px',
+          }}
+        >
           <div>
             <label className="form-label">HTML 파일 업로드 (자동으로 Before 폴더에 저장)</label>
             <input
@@ -1409,7 +1520,26 @@ const QA = () => {
           </div>
         </div>
 
-        {FOLDER_KEYS.map((folderKey) => renderFolderSection(folderKey))}
+        {/* Before/After 폴더 나란히 배치 */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '16px',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+            alignItems: 'stretch',
+          }}
+        >
+          {/* Before 폴더 왼쪽 */}
+          <div style={{ flex: '1', minWidth: '400px', display: 'flex', flexDirection: 'column' }}>
+            {renderFolderSection('before')}
+          </div>
+
+          {/* After 폴더 오른쪽 */}
+          <div style={{ flex: '1', minWidth: '400px', display: 'flex', flexDirection: 'column' }}>
+            {renderFolderSection('after')}
+          </div>
+        </div>
 
         <section style={{ marginTop: '48px' }}>
           {!selectedBeforeFile ? (
