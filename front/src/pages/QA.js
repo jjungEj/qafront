@@ -40,6 +40,36 @@ const createFolderState = () => ({
   totalElements: 0,
 });
 
+const TABLE_STYLE_ID = 'qa-table-border-style';
+const TABLE_STYLE_BLOCK = [
+  `<style id="${TABLE_STYLE_ID}" data-qa-style="table-border">`,
+  '  table { border-collapse: collapse; }',
+  '  th, td { border: 1px solid #000000; }',
+  '  h2 { margin-top: 30px; margin-bottom: 10px; }',
+  '</style>',
+].join('\n');
+const TABLE_STYLE_REGEX = new RegExp(
+  `<style[^>]*id=["']${TABLE_STYLE_ID}["'][^>]*>[\\s\\S]*?<\\/style>`,
+  'i'
+);
+
+const ensureTableBorderStyles = (html = '') => {
+  const source = typeof html === 'string' ? html : '';
+  if (TABLE_STYLE_REGEX.test(source)) {
+    return source;
+  }
+  if (/<head[^>]*>/i.test(source) && /<\/head>/i.test(source)) {
+    return source.replace(/<\/head>/i, `${TABLE_STYLE_BLOCK}\n</head>`);
+  }
+  if (/<body[^>]*>/i.test(source)) {
+    return source.replace(/<body[^>]*>/i, (match) => `${match}\n${TABLE_STYLE_BLOCK}`);
+  }
+  if (/<html[^>]*>/i.test(source)) {
+    return source.replace(/<html[^>]*>/i, (match) => `${match}\n<head>${TABLE_STYLE_BLOCK}</head>`);
+  }
+  return `${TABLE_STYLE_BLOCK}\n${source}`;
+};
+
 // 테이블 편집 유틸리티 함수들
 const buildTableCellMaps = (tableElement, { assignDataset = false, tableIndex = 0 } = {}) => {
   if (!tableElement) {
@@ -344,13 +374,14 @@ const QA = () => {
       
       // 다양한 응답 구조 지원
       const html = response.data?.htmlContent || response.data?.content || response.data?.html || response.data || '';
+      const normalizedHtml = ensureTableBorderStyles(html || '');
       
       console.log('Extracted HTML length:', html.length);
-      setBeforeHtml(html);
-      setEditedHtml(html);
+      setBeforeHtml(normalizedHtml);
+      setEditedHtml(normalizedHtml);
       
       // 히스토리 초기화
-      setHistory([html]);
+      setHistory([normalizedHtml]);
       setHistoryIndex(0);
       historyIndexRef.current = 0;
       setIsEditingTable(false);
@@ -412,18 +443,27 @@ const QA = () => {
     if (!selectedBeforeFile) {
       return;
     }
+    let latestHtml = editedHtml;
     // 편집 모드일 때 테이블에서 최신 HTML 가져오기
     if (isEditingTable) {
-      updateHtmlFromTable();
+      const updatedHtml = updateHtmlFromTable();
       // 상태 업데이트를 기다리기 위해 약간의 지연
       await new Promise(resolve => setTimeout(resolve, 100));
+      latestHtml = typeof updatedHtml === 'string' ? updatedHtml : (getSanitizedHtmlSnapshot() ?? editedHtml);
+    } else {
+      latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
+    }
+    const htmlWithStyles = ensureTableBorderStyles(latestHtml || '');
+    if (htmlWithStyles !== latestHtml) {
+      setEditedHtml(htmlWithStyles);
+      saveToHistory(htmlWithStyles);
     }
     setIsSavingBeforeHtml(true);
     try {
-      await saveBeforeHtmlFile(selectedBeforeFile.fileName, editedHtml);
+      await saveBeforeHtmlFile(selectedBeforeFile.fileName, htmlWithStyles);
       showNotification('HTML 내용이 저장되었습니다.', 'success');
       await fetchWorkspace();
-      setBeforeHtml(editedHtml);
+      setBeforeHtml(htmlWithStyles);
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 저장에 실패했습니다.';
       showNotification(message, 'error');
@@ -495,7 +535,13 @@ const QA = () => {
       showNotification('이미지 변환 중...', 'info');
       
       const baseFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
-      const latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
+      let latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
+      const htmlWithStyles = ensureTableBorderStyles(latestHtml || '');
+      if (htmlWithStyles !== latestHtml) {
+        setEditedHtml(htmlWithStyles);
+        saveToHistory(htmlWithStyles);
+        latestHtml = htmlWithStyles;
+      }
       const sandbox = document.createElement('div');
       sandbox.innerHTML = latestHtml || '';
       
