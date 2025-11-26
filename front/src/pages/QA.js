@@ -133,6 +133,7 @@ const QA = () => {
   const historyIndexRef = useRef(-1);
   const editingCellRef = useRef(null);
   const tableContainerRef = useRef(null);
+  const sheetContentRef = useRef(null);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -383,14 +384,10 @@ const QA = () => {
   }, []);
 
   const getSanitizedHtmlSnapshot = useCallback(() => {
-    if (!tableContainerRef.current) {
+    if (!sheetContentRef.current) {
       return editedHtml;
     }
-    const htmlWrapper = tableContainerRef.current.querySelector('.sheet-html-content');
-    if (!htmlWrapper) {
-      return editedHtml;
-    }
-    const sanitizedWrapper = sanitizeHtmlElement(htmlWrapper);
+    const sanitizedWrapper = sanitizeHtmlElement(sheetContentRef.current);
     return sanitizedWrapper ? sanitizedWrapper.innerHTML : editedHtml;
   }, [editedHtml, sanitizeHtmlElement]);
 
@@ -484,20 +481,54 @@ const QA = () => {
     try {
       showNotification('이미지 변환 중...', 'info');
       
-      // HTML을 하나의 시트로 변환
-      const sheetName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
-      const imageBase64 = await convertTableToImage(editedHtml, sheetName);
-      
-      // 시트 배열로 변환
-      const sheets = [{
-        sheetName: sheetName,
-        htmlContent: editedHtml,
-        imageBase64: imageBase64 || ''
-      }];
-      
+      const baseFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
+      const latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
+      const sandbox = document.createElement('div');
+      sandbox.innerHTML = latestHtml || '';
+      const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
+      const hasMultipleSheets = sheetContainers.length > 0;
+      const targets = hasMultipleSheets ? sheetContainers : [sandbox];
+
+      const sheets = [];
+      for (let index = 0; index < targets.length; index++) {
+        const section = targets[index];
+        const htmlContent = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
+        if (!htmlContent) {
+          continue;
+        }
+        const nameCandidates = [
+          section.getAttribute('data-sheet-name'),
+          section.getAttribute('data-name'),
+          section.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
+          section.querySelector('.sheet-name')?.textContent,
+          section.querySelector('h4')?.textContent,
+          section.querySelector('caption')?.textContent,
+        ];
+        const resolvedName =
+          nameCandidates.find((name) => name && name.trim())?.trim() ||
+          (hasMultipleSheets ? `${baseFileName}-Sheet${index + 1}` : baseFileName) ||
+          `Sheet${index + 1}`;
+        const imageBase64 = await convertTableToImage(htmlContent, resolvedName);
+        sheets.push({
+          sheetName: resolvedName,
+          htmlContent,
+          imageBase64: imageBase64 || '',
+        });
+      }
+
+      if (sheets.length === 0) {
+        const fallbackName = baseFileName || 'Sheet1';
+        const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
+        sheets.push({
+          sheetName: fallbackName,
+          htmlContent: latestHtml,
+          imageBase64: imageBase64 || '',
+        });
+      }
+
       const payload = {
         fileName: selectedBeforeFile.fileName,
-        sheets: sheets
+        sheets,
       };
       
       await convertHtmlToJsonl(payload);
@@ -1460,6 +1491,7 @@ const QA = () => {
                     }}
                   >
                     <div
+                      ref={sheetContentRef}
                       className={`sheet-html-content ${isEditingTable ? 'editing-mode' : ''}`}
                       dangerouslySetInnerHTML={{ __html: editedHtml }}
                       style={{
