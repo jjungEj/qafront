@@ -122,6 +122,7 @@ const QA = () => {
   const [isSavingBeforeHtml, setIsSavingBeforeHtml] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [selectedAfterFiles, setSelectedAfterFiles] = useState([]);
+  const [generatedJsonlFiles, setGeneratedJsonlFiles] = useState([]);
   const [isPromoting, setIsPromoting] = useState(false);
   const [pendingSelectBeforeFileName, setPendingSelectBeforeFileName] = useState(null);
   
@@ -328,6 +329,7 @@ const QA = () => {
   const handleSelectBeforeFile = async (file) => {
     if (!file) {
       setSelectedBeforeFile(null);
+      setGeneratedJsonlFiles([]);
       setBeforeHtml('');
       setEditedHtml('');
       setIsEditingTable(false);
@@ -337,6 +339,7 @@ const QA = () => {
       return;
     }
     setSelectedBeforeFile(file);
+    setGeneratedJsonlFiles([]);
     setIsFetchingBeforeFile(true);
     try {
       const response = await getQaFileContent('before', file.fileName);
@@ -485,6 +488,7 @@ const QA = () => {
       updateHtmlFromTable();
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+    setGeneratedJsonlFiles([]);
     setIsConverting(true);
     try {
       showNotification('이미지 변환 중...', 'info');
@@ -539,11 +543,28 @@ const QA = () => {
         sheets,
       };
       
-      await convertHtmlToJsonl(payload);
-      
-      // 백엔드에서 이미 after 폴더에 저장하므로 다운로드 대신 워크스페이스 새로고침
-      const jsonlFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') + '.jsonl';
-      showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName}`, 'success');
+      const response = await convertHtmlToJsonl(payload);
+      const files = Array.isArray(response?.data?.files) ? response.data.files : [];
+      if (files.length === 0) {
+        showNotification('JSONL 파일 목록을 확인할 수 없습니다. After 폴더를 직접 확인해주세요.', 'warning');
+      } else {
+        setGeneratedJsonlFiles(files);
+        const fileNames = files
+          .map((file) => (typeof file?.fileName === 'string' ? file.fileName.trim() : ''))
+          .filter(Boolean);
+        const readableList = fileNames.length > 0 ? fileNames.join(', ') : `${files.length}개 파일`;
+        showNotification(
+          `${files.length}개의 JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${readableList}`,
+          'success'
+        );
+        if (fileNames.length > 0) {
+          setSelectedAfterFiles((prev) => {
+            const merged = new Set(prev);
+            fileNames.forEach((name) => merged.add(name));
+            return Array.from(merged);
+          });
+        }
+      }
       
       // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
       await fetchWorkspace({ afterPage: 0 });
@@ -1028,6 +1049,53 @@ const QA = () => {
     }
   };
 
+  const handleCopyGeneratedPath = useCallback(
+    async (path) => {
+      if (!path) {
+        showNotification('경로 정보가 없습니다.', 'warning');
+        return;
+      }
+
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(path);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = path;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        showNotification('경로를 클립보드에 복사했습니다.', 'success');
+      } catch (error) {
+        console.error('경로 복사 실패:', error);
+        showNotification('경로 복사에 실패했습니다.', 'error');
+      }
+    },
+    [showNotification]
+  );
+
+  const handleOpenGeneratedFile = useCallback(
+    (path) => {
+      if (!path) {
+        showNotification('경로 정보가 없습니다.', 'warning');
+        return;
+      }
+
+      try {
+        window.open(path, '_blank', 'noopener,noreferrer');
+      } catch (error) {
+        console.error('파일 열기 실패:', error);
+        showNotification('파일을 새 창에서 열 수 없습니다. 경로를 직접 사용해주세요.', 'error');
+      }
+    },
+    [showNotification]
+  );
+
   const handlePromoteSelectedFiles = async () => {
     if (selectedAfterFiles.length === 0) {
       return;
@@ -1492,6 +1560,89 @@ const QA = () => {
                 )}
                 </div>
               </div>
+
+              {generatedJsonlFiles.length > 0 && (
+                <div
+                  style={{
+                    margin: '16px 0',
+                    padding: '16px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '6px',
+                    backgroundColor: '#f9fafb',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>생성된 JSONL 파일 ({generatedJsonlFiles.length}개)</span>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>
+                      After 폴더 또는 아래 경로를 통해 다운로드/후속 작업을 진행하세요.
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {generatedJsonlFiles.map((file, index) => (
+                      <div
+                        key={`${file.fileName || file.path || index}`}
+                        style={{
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '4px',
+                          backgroundColor: '#fff',
+                          padding: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '12px',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, wordBreak: 'break-word' }}>
+                            {file.fileName || '파일명 정보 없음'}
+                          </span>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ padding: '6px 10px', fontSize: '13px' }}
+                              onClick={() => handleCopyGeneratedPath(file.path)}
+                              disabled={!file.path}
+                            >
+                              경로 복사
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ padding: '6px 10px', fontSize: '13px' }}
+                              onClick={() => handleOpenGeneratedFile(file.path)}
+                              disabled={!file.path}
+                            >
+                              새 창에서 열기
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#4b5563', wordBreak: 'break-all' }}>
+                          {file.path || '경로 정보가 제공되지 않았습니다. After 폴더를 확인해주세요.'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div style={{ marginBottom: '24px' }}>
                 {isFetchingBeforeFile ? (
