@@ -373,23 +373,36 @@ const QA = () => {
     });
   }, []);
 
-  const sanitizeTableHtml = useCallback((tableElement) => {
-    if (!tableElement) return '';
-    const clonedTable = tableElement.cloneNode(true);
-    clonedTable.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
-    clonedTable.querySelectorAll('.cell-editing').forEach(cell => cell.classList.remove('cell-editing'));
-    clonedTable.querySelectorAll('[contenteditable]').forEach(cell => cell.removeAttribute('contenteditable'));
-    return clonedTable.outerHTML;
+  const sanitizeHtmlElement = useCallback((element) => {
+    if (!element) return null;
+    const clonedElement = element.cloneNode(true);
+    clonedElement.querySelectorAll('.selected').forEach((cell) => cell.classList.remove('selected'));
+    clonedElement.querySelectorAll('.cell-editing').forEach((cell) => cell.classList.remove('cell-editing'));
+    clonedElement.querySelectorAll('[contenteditable]').forEach((cell) => cell.removeAttribute('contenteditable'));
+    return clonedElement;
   }, []);
 
+  const getSanitizedHtmlSnapshot = useCallback(() => {
+    if (!tableContainerRef.current) {
+      return editedHtml;
+    }
+    const htmlWrapper = tableContainerRef.current.querySelector('.sheet-html-content');
+    if (!htmlWrapper) {
+      return editedHtml;
+    }
+    const sanitizedWrapper = sanitizeHtmlElement(htmlWrapper);
+    return sanitizedWrapper ? sanitizedWrapper.innerHTML : editedHtml;
+  }, [editedHtml, sanitizeHtmlElement]);
+
   const updateHtmlFromTable = useCallback(() => {
-    if (!tableContainerRef.current) return;
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
-    const sanitizedHtml = sanitizeTableHtml(table);
+    const sanitizedHtml = getSanitizedHtmlSnapshot();
+    if (sanitizedHtml == null) {
+      return null;
+    }
     setEditedHtml(sanitizedHtml);
     saveToHistory(sanitizedHtml);
-  }, [sanitizeTableHtml, saveToHistory]);
+    return sanitizedHtml;
+  }, [getSanitizedHtmlSnapshot, saveToHistory]);
 
   const handleSaveBeforeFile = async () => {
     if (!selectedBeforeFile) {
