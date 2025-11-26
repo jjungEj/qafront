@@ -1107,13 +1107,16 @@ const QA = () => {
       console.warn(`Invalid folderData for ${folderKey}:`, folderData);
     }
 
-  return (
-      <section key={folderKey} style={{ 
-        marginBottom: '16px',
-        height: '400px',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
+    return (
+      <section
+        key={folderKey}
+        style={{
+          marginBottom: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        }}
+      >
         <div
           style={{
             display: 'flex',
@@ -1195,7 +1198,15 @@ const QA = () => {
           )}
         </div>
 
-        <div className="table-container" style={{ flex: '1 1 auto', overflow: 'auto', minHeight: 0 }}>
+        <div
+          className="table-container"
+          style={{
+            flex: '0 0 auto',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            maxHeight: 'none',
+          }}
+        >
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2c3e50' }}>
               <tr>
