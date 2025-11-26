@@ -42,7 +42,7 @@ const createFolderState = () => ({
 });
 
 // 테이블 편집 유틸리티 함수들
-const buildTableCellMaps = (tableElement, { assignDataset = false } = {}) => {
+const buildTableCellMaps = (tableElement, { assignDataset = false, tableIndex = 0 } = {}) => {
   if (!tableElement) {
     return {
       coordinateMap: new Map(),
@@ -89,6 +89,7 @@ const buildTableCellMaps = (tableElement, { assignDataset = false } = {}) => {
       if (assignDataset && cell.dataset) {
         cell.dataset.rowIndex = String(rowIndex);
         cell.dataset.colIndex = String(colPointer);
+        cell.dataset.tableIndex = String(tableIndex);
       }
 
       colPointer += colspan;
@@ -134,6 +135,13 @@ const QA = () => {
   const editingCellRef = useRef(null);
   const tableContainerRef = useRef(null);
   const sheetContentRef = useRef(null);
+
+  const getEditableTables = useCallback(() => {
+    if (!tableContainerRef.current) {
+      return [];
+    }
+    return Array.from(tableContainerRef.current.querySelectorAll('table'));
+  }, []);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -548,7 +556,7 @@ const QA = () => {
   };
 
   // 셀 선택 시작
-  const handleCellMouseDown = useCallback((e, rowIndex, colIndex) => {
+  const handleCellMouseDown = useCallback((e, tableIndex, rowIndex, colIndex) => {
     if (!isEditingTable) return;
 
     const cellElement = e.currentTarget || e.target;
@@ -569,7 +577,7 @@ const QA = () => {
 
     e.preventDefault();
     setIsSelecting(true);
-    setSelectedCells([{ rowIndex, colIndex }]);
+    setSelectedCells([{ tableIndex, rowIndex, colIndex }]);
     
     if (cellElement && cellElement.scrollIntoView) {
       cellElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
@@ -577,7 +585,7 @@ const QA = () => {
   }, [isEditingTable]);
 
   // 셀 선택 중
-  const handleCellMouseEnter = useCallback((e, rowIndex, colIndex) => {
+  const handleCellMouseEnter = useCallback((e, tableIndex, rowIndex, colIndex) => {
     if (!isSelecting || !isEditingTable) return;
 
     const activeEditable = document.activeElement;
@@ -593,6 +601,9 @@ const QA = () => {
     setSelectedCells(prev => {
       if (prev.length === 0) return prev;
       const startCell = prev[0];
+      if (startCell.tableIndex !== tableIndex) {
+        return prev;
+      }
       const newSelectedCells = [];
       const startRow = Math.min(startCell.rowIndex, rowIndex);
       const endRow = Math.max(startCell.rowIndex, rowIndex);
@@ -601,7 +612,7 @@ const QA = () => {
 
       for (let r = startRow; r <= endRow; r++) {
         for (let c = startCol; c <= endCol; c++) {
-          newSelectedCells.push({ rowIndex: r, colIndex: c });
+          newSelectedCells.push({ tableIndex, rowIndex: r, colIndex: c });
         }
       }
 
@@ -651,18 +662,28 @@ const QA = () => {
       return;
     }
 
-    if (!tableContainerRef.current) return;
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
+    const normalizedCells = selectedCells.map((cell) => ({
+      ...cell,
+      tableIndex: typeof cell.tableIndex === 'number' ? cell.tableIndex : 0,
+    }));
+
+    const uniqueTableIndexes = new Set(normalizedCells.map((cell) => cell.tableIndex));
+    if (uniqueTableIndexes.size !== 1) {
+      showNotification('서로 다른 테이블의 셀은 함께 병합할 수 없습니다.', 'warning');
+      return;
+    }
+
+    const targetTableIndex = normalizedCells[0]?.tableIndex ?? 0;
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(editedHtml, 'text/html');
-    const docTable = doc.querySelector('table');
+    const docTables = doc.querySelectorAll('table');
+    const docTable = docTables[targetTableIndex] || docTables[0];
     if (!docTable) return;
 
     const { matrix, cellMetaMap } = buildTableCellMaps(docTable);
 
-    const sortedCells = [...selectedCells].sort((a, b) => {
+    const sortedCells = [...normalizedCells].sort((a, b) => {
       if (a.rowIndex !== b.rowIndex) return a.rowIndex - b.rowIndex;
       return a.colIndex - b.colIndex;
     });
@@ -730,7 +751,7 @@ const QA = () => {
       mainCellElement.innerHTML = mergedContent;
     }
 
-    const newHtml = docTable.outerHTML;
+    const newHtml = doc.body.innerHTML;
     setEditedHtml(newHtml);
     saveToHistory(newHtml);
     setSelectedCells([]);
@@ -763,79 +784,80 @@ const QA = () => {
   useEffect(() => {
     if (!isEditingTable || !tableContainerRef.current || !editedHtml) return;
 
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
+    const tables = getEditableTables();
+    if (tables.length === 0) return;
 
-    const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true });
-    const cells = table.querySelectorAll('td, th');
-    
-    const mouseDownHandlers = [];
-    const mouseEnterHandlers = [];
+    const registeredHandlers = [];
     const mouseUpHandler = () => handleCellMouseUp();
 
-    cells.forEach((cell) => {
-      const position = coordinateMap.get(cell);
-      if (!position) return;
-      const { rowIndex, colIndex } = position;
-      
-      const mouseDownHandler = (e) => {
-        handleCellMouseDown(e, rowIndex, colIndex);
-      };
-      
-      const mouseEnterHandler = (e) => {
-        handleCellMouseEnter(e, rowIndex, colIndex);
-      };
+    tables.forEach((table, tableIndex) => {
+      const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true, tableIndex });
+      const cells = table.querySelectorAll('td, th');
 
-      cell.addEventListener('mousedown', mouseDownHandler);
-      cell.addEventListener('mouseenter', mouseEnterHandler);
-      mouseDownHandlers.push({ cell, handler: mouseDownHandler });
-      mouseEnterHandlers.push({ cell, handler: mouseEnterHandler });
+      cells.forEach((cell) => {
+        const position = coordinateMap.get(cell);
+        if (!position) return;
+        const { rowIndex, colIndex } = position;
+        
+        const mouseDownHandler = (e) => {
+          handleCellMouseDown(e, tableIndex, rowIndex, colIndex);
+        };
+        
+        const mouseEnterHandler = (e) => {
+          handleCellMouseEnter(e, tableIndex, rowIndex, colIndex);
+        };
+
+        cell.addEventListener('mousedown', mouseDownHandler);
+        cell.addEventListener('mouseenter', mouseEnterHandler);
+        registeredHandlers.push(
+          { cell, type: 'mousedown', handler: mouseDownHandler },
+          { cell, type: 'mouseenter', handler: mouseEnterHandler },
+        );
+      });
     });
 
     document.addEventListener('mouseup', mouseUpHandler);
 
     return () => {
-      mouseDownHandlers.forEach(({ cell, handler }) => {
-        cell.removeEventListener('mousedown', handler);
-      });
-      mouseEnterHandlers.forEach(({ cell, handler }) => {
-        cell.removeEventListener('mouseenter', handler);
+      registeredHandlers.forEach(({ cell, type, handler }) => {
+        cell.removeEventListener(type, handler);
       });
       document.removeEventListener('mouseup', mouseUpHandler);
     };
-  }, [isEditingTable, editedHtml, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp]);
+  }, [isEditingTable, editedHtml, handleCellMouseDown, handleCellMouseEnter, handleCellMouseUp, getEditableTables]);
 
   // 선택된 셀에 스타일 적용
   useEffect(() => {
     if (!isEditingTable || !tableContainerRef.current) return;
 
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
+    const tables = getEditableTables();
+    if (tables.length === 0) return;
 
-    const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true });
-    const cells = table.querySelectorAll('td, th');
-    
-    cells.forEach((cell) => {
-      const position = coordinateMap.get(cell);
-      if (!position) return;
-      const { rowIndex, colIndex } = position;
+    tables.forEach((table, tableIndex) => {
+      const { coordinateMap } = buildTableCellMaps(table, { assignDataset: true, tableIndex });
+      const cells = table.querySelectorAll('td, th');
       
-      if (selectedCells.some(c => c.rowIndex === rowIndex && c.colIndex === colIndex)) {
-        cell.classList.add('selected');
-      } else {
-        cell.classList.remove('selected');
-      }
+      cells.forEach((cell) => {
+        const position = coordinateMap.get(cell);
+        if (!position) return;
+        const { rowIndex, colIndex } = position;
+        
+        if (selectedCells.some(c => c.tableIndex === tableIndex && c.rowIndex === rowIndex && c.colIndex === colIndex)) {
+          cell.classList.add('selected');
+        } else {
+          cell.classList.remove('selected');
+        }
+      });
     });
-  }, [selectedCells, isEditingTable, editedHtml]);
+  }, [selectedCells, isEditingTable, editedHtml, getEditableTables]);
 
   // 셀 편집 (더블클릭)
   useEffect(() => {
     if (!isEditingTable || !tableContainerRef.current) return;
 
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
+    const tables = getEditableTables();
+    if (tables.length === 0) return;
 
-    const cells = table.querySelectorAll('td, th');
     const eventBindings = [];
 
     const beginEditing = (cell) => {
@@ -891,33 +913,38 @@ const QA = () => {
       }
     };
 
-    cells.forEach((cell) => {
-      const dblHandler = createDblClickHandler(cell);
-      const blurHandler = createBlurHandler(cell);
-      const keyDownHandler = createKeyDownHandler(cell);
+    tables.forEach((table) => {
+      const cells = table.querySelectorAll('td, th');
+      cells.forEach((cell) => {
+        const dblHandler = createDblClickHandler(cell);
+        const blurHandler = createBlurHandler(cell);
+        const keyDownHandler = createKeyDownHandler(cell);
 
-      cell.addEventListener('dblclick', dblHandler);
-      cell.addEventListener('blur', blurHandler);
-      cell.addEventListener('keydown', keyDownHandler);
+        cell.addEventListener('dblclick', dblHandler);
+        cell.addEventListener('blur', blurHandler);
+        cell.addEventListener('keydown', keyDownHandler);
 
-      eventBindings.push(
-        { cell, type: 'dblclick', handler: dblHandler },
-        { cell, type: 'blur', handler: blurHandler },
-        { cell, type: 'keydown', handler: keyDownHandler },
-      );
+        eventBindings.push(
+          { cell, type: 'dblclick', handler: dblHandler },
+          { cell, type: 'blur', handler: blurHandler },
+          { cell, type: 'keydown', handler: keyDownHandler },
+        );
+      });
     });
 
     return () => {
       eventBindings.forEach(({ cell, type, handler }) => {
         cell.removeEventListener(type, handler);
       });
-      cells.forEach(cell => {
-        cell.removeAttribute('contenteditable');
-        cell.classList.remove('cell-editing');
+      tables.forEach((table) => {
+        table.querySelectorAll('td, th').forEach((cell) => {
+          cell.removeAttribute('contenteditable');
+          cell.classList.remove('cell-editing');
+        });
       });
       editingCellRef.current = null;
     };
-  }, [isEditingTable, editedHtml, updateHtmlFromTable]);
+  }, [isEditingTable, editedHtml, updateHtmlFromTable, getEditableTables]);
 
   // 키보드 단축키 (Ctrl+Z, Ctrl+Y)
   useEffect(() => {
