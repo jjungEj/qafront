@@ -133,6 +133,7 @@ const QA = () => {
   const historyIndexRef = useRef(-1);
   const editingCellRef = useRef(null);
   const tableContainerRef = useRef(null);
+  const sheetContentRef = useRef(null);
 
   const showNotification = useCallback((message, type = 'info', duration = 3000) => {
     const id = Date.now();
@@ -373,23 +374,32 @@ const QA = () => {
     });
   }, []);
 
-  const sanitizeTableHtml = useCallback((tableElement) => {
-    if (!tableElement) return '';
-    const clonedTable = tableElement.cloneNode(true);
-    clonedTable.querySelectorAll('.selected').forEach(cell => cell.classList.remove('selected'));
-    clonedTable.querySelectorAll('.cell-editing').forEach(cell => cell.classList.remove('cell-editing'));
-    clonedTable.querySelectorAll('[contenteditable]').forEach(cell => cell.removeAttribute('contenteditable'));
-    return clonedTable.outerHTML;
+  const sanitizeHtmlElement = useCallback((element) => {
+    if (!element) return null;
+    const clonedElement = element.cloneNode(true);
+    clonedElement.querySelectorAll('.selected').forEach((cell) => cell.classList.remove('selected'));
+    clonedElement.querySelectorAll('.cell-editing').forEach((cell) => cell.classList.remove('cell-editing'));
+    clonedElement.querySelectorAll('[contenteditable]').forEach((cell) => cell.removeAttribute('contenteditable'));
+    return clonedElement;
   }, []);
 
+  const getSanitizedHtmlSnapshot = useCallback(() => {
+    if (!sheetContentRef.current) {
+      return editedHtml;
+    }
+    const sanitizedWrapper = sanitizeHtmlElement(sheetContentRef.current);
+    return sanitizedWrapper ? sanitizedWrapper.innerHTML : editedHtml;
+  }, [editedHtml, sanitizeHtmlElement]);
+
   const updateHtmlFromTable = useCallback(() => {
-    if (!tableContainerRef.current) return;
-    const table = tableContainerRef.current.querySelector('table');
-    if (!table) return;
-    const sanitizedHtml = sanitizeTableHtml(table);
+    const sanitizedHtml = getSanitizedHtmlSnapshot();
+    if (sanitizedHtml == null) {
+      return null;
+    }
     setEditedHtml(sanitizedHtml);
     saveToHistory(sanitizedHtml);
-  }, [sanitizeTableHtml, saveToHistory]);
+    return sanitizedHtml;
+  }, [getSanitizedHtmlSnapshot, saveToHistory]);
 
   const handleSaveBeforeFile = async () => {
     if (!selectedBeforeFile) {
@@ -471,20 +481,54 @@ const QA = () => {
     try {
       showNotification('이미지 변환 중...', 'info');
       
-      // HTML을 하나의 시트로 변환
-      const sheetName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
-      const imageBase64 = await convertTableToImage(editedHtml, sheetName);
-      
-      // 시트 배열로 변환
-      const sheets = [{
-        sheetName: sheetName,
-        htmlContent: editedHtml,
-        imageBase64: imageBase64 || ''
-      }];
-      
+      const baseFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
+      const latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
+      const sandbox = document.createElement('div');
+      sandbox.innerHTML = latestHtml || '';
+      const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
+      const hasMultipleSheets = sheetContainers.length > 0;
+      const targets = hasMultipleSheets ? sheetContainers : [sandbox];
+
+      const sheets = [];
+      for (let index = 0; index < targets.length; index++) {
+        const section = targets[index];
+        const htmlContent = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
+        if (!htmlContent) {
+          continue;
+        }
+        const nameCandidates = [
+          section.getAttribute('data-sheet-name'),
+          section.getAttribute('data-name'),
+          section.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
+          section.querySelector('.sheet-name')?.textContent,
+          section.querySelector('h4')?.textContent,
+          section.querySelector('caption')?.textContent,
+        ];
+        const resolvedName =
+          nameCandidates.find((name) => name && name.trim())?.trim() ||
+          (hasMultipleSheets ? `${baseFileName}-Sheet${index + 1}` : baseFileName) ||
+          `Sheet${index + 1}`;
+        const imageBase64 = await convertTableToImage(htmlContent, resolvedName);
+        sheets.push({
+          sheetName: resolvedName,
+          htmlContent,
+          imageBase64: imageBase64 || '',
+        });
+      }
+
+      if (sheets.length === 0) {
+        const fallbackName = baseFileName || 'Sheet1';
+        const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
+        sheets.push({
+          sheetName: fallbackName,
+          htmlContent: latestHtml,
+          imageBase64: imageBase64 || '',
+        });
+      }
+
       const payload = {
         fileName: selectedBeforeFile.fileName,
-        sheets: sheets
+        sheets,
       };
       
       await convertHtmlToJsonl(payload);
@@ -1107,13 +1151,16 @@ const QA = () => {
       console.warn(`Invalid folderData for ${folderKey}:`, folderData);
     }
 
-  return (
-      <section key={folderKey} style={{ 
-        marginBottom: '16px',
-        height: '400px',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
+    return (
+      <section
+        key={folderKey}
+        style={{
+          marginBottom: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+        }}
+      >
         <div
           style={{
             display: 'flex',
@@ -1195,7 +1242,15 @@ const QA = () => {
           )}
         </div>
 
-        <div className="table-container" style={{ flex: '1 1 auto', overflow: 'auto', minHeight: 0 }}>
+        <div
+          className="table-container"
+          style={{
+            flex: '0 0 auto',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            maxHeight: 'none',
+          }}
+        >
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2c3e50' }}>
               <tr>
@@ -1436,6 +1491,7 @@ const QA = () => {
                     }}
                   >
                     <div
+                      ref={sheetContentRef}
                       className={`sheet-html-content ${isEditingTable ? 'editing-mode' : ''}`}
                       dangerouslySetInnerHTML={{ __html: editedHtml }}
                       style={{
