@@ -46,11 +46,6 @@ const TABLE_STYLE_RULES = [
   '  th, td { border: 1px solid #000000; }',
   '  h2 { margin-top: 30px; margin-bottom: 10px; }',
 ].join('\n');
-const TABLE_STYLE_BLOCK = [
-  `<style id="${TABLE_STYLE_ID}" data-qa-style="table-border">`,
-  TABLE_STYLE_RULES,
-  '</style>',
-].join('\n');
 const BASE_TABLE_STYLE_BLOCK = [
   '<style>',
   TABLE_STYLE_RULES,
@@ -133,11 +128,13 @@ const escapeHtml = (value = '') =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const getJsonlTitle = (fileName = '') => {
+const getHtmlTitle = (fileName = '') => {
   const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : '';
-  const resolved = baseName || DEFAULT_HTML_TITLE;
-  return `${resolved}.jsonl`;
+  const resolved = baseName?.trim() || DEFAULT_HTML_TITLE;
+  return resolved;
 };
+
+const getJsonlTitle = (fileName = '') => `${getHtmlTitle(fileName)}.jsonl`;
 
 const buildFullHtmlDocument = (html = '', { title } = {}) => {
   const headContent = stripTableStyleBlocks(stripHeadMetaAndTitle(extractHeadContent(html)));
@@ -162,7 +159,6 @@ const buildFullHtmlDocument = (html = '', { title } = {}) => {
     '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
     `  <title>${escapeHtml(title?.trim() || DEFAULT_HTML_TITLE)}</title>`,
     BASE_TABLE_STYLE_BLOCK,
-    TABLE_STYLE_BLOCK,
   ];
   if (headContent) {
     sanitizedHeadSegments.push(headContent);
@@ -181,19 +177,32 @@ const buildFullHtmlDocument = (html = '', { title } = {}) => {
 
 const ensureTableBorderStyles = (html = '') => {
   const source = typeof html === 'string' ? html : '';
-  if (TABLE_STYLE_REGEX.test(source)) {
-    return source;
+  const cleanedSource = source.replace(TABLE_STYLE_REGEX, '');
+
+  if (!cleanedSource.trim()) {
+    return BASE_TABLE_STYLE_BLOCK;
   }
-  if (/<head[^>]*>/i.test(source) && /<\/head>/i.test(source)) {
-    return source.replace(/<\/head>/i, `${TABLE_STYLE_BLOCK}\n</head>`);
+
+  if (BASE_TABLE_STYLE_REGEX.test(cleanedSource)) {
+    return cleanedSource;
   }
-  if (/<body[^>]*>/i.test(source)) {
-    return source.replace(/<body[^>]*>/i, (match) => `${match}\n${TABLE_STYLE_BLOCK}`);
+
+  if (/<head[^>]*>/i.test(cleanedSource) && /<\/head>/i.test(cleanedSource)) {
+    return cleanedSource.replace(/<\/head>/i, `${BASE_TABLE_STYLE_BLOCK}\n</head>`);
   }
-  if (/<html[^>]*>/i.test(source)) {
-    return source.replace(/<html[^>]*>/i, (match) => `${match}\n<head>${TABLE_STYLE_BLOCK}</head>`);
+
+  if (/<body[^>]*>/i.test(cleanedSource)) {
+    return cleanedSource.replace(/<body[^>]*>/i, (match) => `${match}\n${BASE_TABLE_STYLE_BLOCK}`);
   }
-  return `${TABLE_STYLE_BLOCK}\n${source}`;
+
+  if (/<html[^>]*>/i.test(cleanedSource)) {
+    return cleanedSource.replace(
+      /<html[^>]*>/i,
+      (match) => `${match}\n<head>${BASE_TABLE_STYLE_BLOCK}</head>`
+    );
+  }
+
+  return `${BASE_TABLE_STYLE_BLOCK}\n${cleanedSource}`;
 };
 
 // 테이블 편집 유틸리티 함수들
@@ -585,8 +594,8 @@ const QA = () => {
       saveToHistory(htmlWithStyles);
       latestHtml = htmlWithStyles;
     }
-    const jsonlTitle = getJsonlTitle(selectedBeforeFile.fileName);
-    const documentHtml = buildFullHtmlDocument(latestHtml || '', { title: jsonlTitle });
+    const htmlTitle = getHtmlTitle(selectedBeforeFile.fileName);
+    const documentHtml = buildFullHtmlDocument(latestHtml || '', { title: htmlTitle });
     setIsSavingBeforeHtml(true);
     try {
       await saveBeforeHtmlFile(selectedBeforeFile.fileName, documentHtml);
@@ -664,7 +673,7 @@ const QA = () => {
       showNotification('이미지 변환 중...', 'info');
       
       const baseFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
-      const jsonlTitle = getJsonlTitle(selectedBeforeFile.fileName);
+      const htmlTitle = getHtmlTitle(selectedBeforeFile.fileName);
       let latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
       const htmlWithStyles = ensureTableBorderStyles(latestHtml || '');
       if (htmlWithStyles !== latestHtml) {
@@ -674,7 +683,7 @@ const QA = () => {
       }
       const sandbox = document.createElement('div');
       sandbox.innerHTML = latestHtml || '';
-      const wrapHtmlContent = (html) => buildFullHtmlDocument(html || '', { title: jsonlTitle });
+      const wrapHtmlContent = (html) => buildFullHtmlDocument(html || '', { title: htmlTitle });
       
       // HTML에서 모든 <table> 태그 찾기
       const tables = Array.from(sandbox.querySelectorAll('table'));
@@ -817,7 +826,7 @@ const QA = () => {
       await convertHtmlToJsonl(payload);
       
       // 백엔드에서 이미 after 폴더에 저장하므로 다운로드 대신 워크스페이스 새로고침
-      const jsonlFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') + '.jsonl';
+      const jsonlFileName = getJsonlTitle(selectedBeforeFile.fileName);
       showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${sheets.length}개 시트)`, 'success');
       
       // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
