@@ -80,6 +80,24 @@ const normalizeHtmlForTransport = (rawHtml = '') => {
   return rawHtml.replace(/\r/g, '').replace(/\n/g, '');
 };
 
+const decodeEscapedHtmlString = (html = '') => {
+  if (typeof html !== 'string') {
+    return '';
+  }
+
+  if (!html.includes('\\')) {
+    return html;
+  }
+
+  return html
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\\\/g, '\\');
+};
+
 const applyDefaultTableAttributes = (html = '') => {
   const source = typeof html === 'string' ? html : '';
   if (!source.trim() || !/<table/i.test(source)) {
@@ -717,10 +735,11 @@ const QA = () => {
       console.log('Response data:', response.data);
       
       // 다양한 응답 구조 지원
-      const html = response.data?.htmlContent || response.data?.content || response.data?.html || response.data || '';
-      const normalizedHtml = ensureTableBorderStyles(html || '');
+      const rawHtmlContent = response.data?.htmlContent || response.data?.content || response.data?.html || response.data || '';
+      const decodedHtml = decodeEscapedHtmlString(rawHtmlContent || '');
+      const normalizedHtml = ensureTableBorderStyles(decodedHtml || '');
       
-      console.log('Extracted HTML length:', html.length);
+      console.log('Extracted HTML length:', decodedHtml.length);
       setBeforeHtml(normalizedHtml);
       setEditedHtml(normalizedHtml);
       
@@ -731,7 +750,7 @@ const QA = () => {
       setIsEditingTable(false);
       setSelectedCells([]);
       
-      if (!html) {
+      if (!decodedHtml) {
         showNotification('HTML 내용이 비어있습니다.', 'warning');
       }
     } catch (error) {
