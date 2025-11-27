@@ -943,60 +943,96 @@ const QA = () => {
       const transportReadyHtml = normalizeHtmlForTransport(standardizedHtml);
       const sandbox = document.createElement('div');
       sandbox.innerHTML = standardizedHtml || '';
-
       const tables = Array.from(sandbox.querySelectorAll('table'));
-      const imageBase64List = [];
+      const tableSections = extractTableSectionsByHeading(sandbox).filter(
+        (section) => section.fragmentHtml && /<table/i.test(section.fragmentHtml)
+      );
 
-      for (let index = 0; index < tables.length; index++) {
-        const table = tables[index];
-        const tableWrapper = document.createElement('div');
-        tableWrapper.style.backgroundColor = '#ffffff';
-        tableWrapper.style.padding = '8px';
-        const clonedTable = table.cloneNode(true);
-        tableWrapper.appendChild(clonedTable);
+      const sheets = [];
 
-        const tableHtml = tableWrapper.innerHTML.trim();
-        if (!tableHtml) {
+      for (let index = 0; index < tableSections.length; index++) {
+        const section = tableSections[index];
+        const fragmentHtml = section.fragmentHtml?.trim();
+        if (!fragmentHtml) {
           continue;
         }
+        const sectionTitle = section.title?.trim() || `${baseFileName}-Table${index + 1}`;
+        const sectionDocumentHtml = buildStandardizedHtmlDocument(fragmentHtml, { title: sectionTitle });
+        const normalizedSectionHtml = normalizeHtmlForTransport(sectionDocumentHtml);
 
-        const imageBase64 = await convertTableToImage(tableHtml, `${baseFileName}-Table${index + 1}`);
-        if (imageBase64) {
-          imageBase64List.push(imageBase64);
+        let sectionImageBase64 = await convertTableToImage(fragmentHtml, sectionTitle);
+        if (!sectionImageBase64) {
+          sectionImageBase64 = await convertTableToImage(sectionDocumentHtml, sectionTitle);
         }
+
+        const sheetPayload = {
+          sheetName: sectionTitle,
+          htmlContent: normalizedSectionHtml,
+        };
+
+        if (sectionImageBase64) {
+          sheetPayload.imageBase64List = [sectionImageBase64];
+          sheetPayload.imageBase64 = sectionImageBase64;
+        }
+
+        sheets.push(sheetPayload);
       }
 
-      const sheetPayload = {
-        sheetName: baseFileName,
-        htmlContent: transportReadyHtml,
-      };
+      if (sheets.length === 0) {
+        const imageBase64List = [];
 
-      if (imageBase64List.length > 0) {
-        sheetPayload.imageBase64List = imageBase64List;
-      } else {
-        const fallbackImage = await convertTableToImage(standardizedHtml, baseFileName);
-        if (fallbackImage) {
-          sheetPayload.imageBase64 = fallbackImage;
+        for (let index = 0; index < tables.length; index++) {
+          const table = tables[index];
+          const tableWrapper = document.createElement('div');
+          tableWrapper.style.backgroundColor = '#ffffff';
+          tableWrapper.style.padding = '8px';
+          const clonedTable = table.cloneNode(true);
+          tableWrapper.appendChild(clonedTable);
+
+          const tableHtml = tableWrapper.innerHTML.trim();
+          if (!tableHtml) {
+            continue;
+          }
+
+          const imageBase64 = await convertTableToImage(tableHtml, `${baseFileName}-Table${index + 1}`);
+          if (imageBase64) {
+            imageBase64List.push(imageBase64);
+          }
         }
+
+        const sheetPayload = {
+          sheetName: baseFileName,
+          htmlContent: transportReadyHtml,
+        };
+
+        if (imageBase64List.length > 0) {
+          sheetPayload.imageBase64List = imageBase64List;
+        } else {
+          const fallbackImage = await convertTableToImage(standardizedHtml, baseFileName);
+          if (fallbackImage) {
+            sheetPayload.imageBase64 = fallbackImage;
+          }
+        }
+
+        sheets.push(sheetPayload);
       }
 
-      if (!sheetPayload.htmlContent?.trim()) {
+      const validSheets = sheets.filter((sheet) => sheet.htmlContent?.trim());
+      if (validSheets.length === 0) {
         showNotification('변환할 내용이 없습니다.', 'warning');
         return;
       }
 
-      const sheets = [sheetPayload];
-
       // API 요청 데이터 준비
       const payload = {
         fileName: selectedBeforeFile.fileName,
-        sheets,
+        sheets: validSheets,
       };
 
       await convertHtmlToJsonl(payload);
 
       const jsonlFileName = getJsonlTitle(selectedBeforeFile.fileName);
-      showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${sheets.length}개 시트)`, 'success');
+      showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${validSheets.length}개 시트)`, 'success');
       
       // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
       await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
