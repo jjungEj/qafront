@@ -31,6 +31,7 @@ const FOLDER_LABELS = {
   before: 'Before',
   dev: 'Dev',
 };
+const ALL_FOLDER_KEYS = ['after', 'before', 'dev'];
 
 const createFolderState = () => ({
   files: [],
@@ -283,7 +284,8 @@ const QA = () => {
   const [notifications, setNotifications] = useState([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
-  const [beforeSearchKeyword, setBeforeSearchKeyword] = useState('');
+  const [beforeSearchInput, setBeforeSearchInput] = useState('');
+  const [activeBeforeKeyword, setActiveBeforeKeyword] = useState(null);
   const [selectedBeforeFile, setSelectedBeforeFile] = useState(null);
   const [beforeHtml, setBeforeHtml] = useState('');
   const [editedHtml, setEditedHtml] = useState('');
@@ -293,6 +295,11 @@ const QA = () => {
   const [selectedAfterFiles, setSelectedAfterFiles] = useState([]);
   const [isPromoting, setIsPromoting] = useState(false);
   const [pendingSelectBeforeFileName, setPendingSelectBeforeFileName] = useState(null);
+  const [loadingFolders, setLoadingFolders] = useState({
+    after: false,
+    before: false,
+    dev: false,
+  });
   
   // 테이블 편집 관련 state
   const [isEditingTable, setIsEditingTable] = useState(false);
@@ -360,15 +367,40 @@ const QA = () => {
 
   const fetchWorkspace = useCallback(
     async (override = {}) => {
+      const {
+        folderKeys = ALL_FOLDER_KEYS,
+        beforeKeyword: overrideBeforeKeyword,
+        size: overrideSize,
+        ...pageOverrides
+      } = override;
+
+      const resolvedFolderKeys =
+        Array.isArray(folderKeys) && folderKeys.length > 0 ? folderKeys : ALL_FOLDER_KEYS;
+
       const params = {
-        afterPage: override.afterPage ?? pages.after,
-        beforePage: override.beforePage ?? pages.before,
-        devPage: override.devPage ?? pages.dev,
-        size: override.size ?? DEFAULT_PAGE_SIZE,
-        beforeKeyword: override.beforeKeyword !== undefined ? override.beforeKeyword : (beforeSearchKeyword || null),
+        afterPage: pageOverrides.afterPage ?? pages.after,
+        beforePage: pageOverrides.beforePage ?? pages.before,
+        devPage: pageOverrides.devPage ?? pages.dev,
+        size: overrideSize ?? DEFAULT_PAGE_SIZE,
       };
 
+      const resolvedBeforeKeyword =
+        overrideBeforeKeyword !== undefined ? overrideBeforeKeyword : (activeBeforeKeyword || null);
+      if (resolvedBeforeKeyword && typeof resolvedBeforeKeyword === 'string' && resolvedBeforeKeyword.trim()) {
+        params.beforeKeyword = resolvedBeforeKeyword.trim();
+      }
+
       setLoadingWorkspace(true);
+      setLoadingFolders((prev) => {
+        const next = { ...prev };
+        resolvedFolderKeys.forEach((key) => {
+          if (next[key] !== undefined) {
+            next[key] = true;
+          }
+        });
+        return next;
+      });
+
       try {
         const response = await getQaWorkspace(params);
         let data = response.data || {};
@@ -429,15 +461,54 @@ const QA = () => {
         showNotification('워크스페이스를 불러오는데 실패했습니다.', 'error');
         throw error;
       } finally {
+        setLoadingFolders((prev) => {
+          const next = { ...prev };
+          resolvedFolderKeys.forEach((key) => {
+            if (next[key] !== undefined) {
+              next[key] = false;
+            }
+          });
+          return next;
+        });
         setLoadingWorkspace(false);
       }
     },
-    [pages.after, pages.before, pages.dev, beforeSearchKeyword, showNotification]
+    [pages.after, pages.before, pages.dev, activeBeforeKeyword, showNotification]
   );
 
   useEffect(() => {
     fetchWorkspace();
   }, [fetchWorkspace]);
+
+  const handleBeforeSearch = useCallback(() => {
+    if (loadingFolders.before) {
+      return;
+    }
+    const trimmed = beforeSearchInput.trim();
+    const nextKeyword = trimmed.length > 0 ? trimmed : null;
+    setActiveBeforeKeyword(nextKeyword);
+    fetchWorkspace({
+      beforePage: 0,
+      beforeKeyword: nextKeyword,
+      folderKeys: ['before'],
+    });
+  }, [beforeSearchInput, fetchWorkspace, loadingFolders.before]);
+
+  const handleClearBeforeSearch = useCallback(() => {
+    if (!beforeSearchInput && !activeBeforeKeyword) {
+      return;
+    }
+    if (loadingFolders.before) {
+      return;
+    }
+    setBeforeSearchInput('');
+    setActiveBeforeKeyword(null);
+    fetchWorkspace({
+      beforePage: 0,
+      beforeKeyword: null,
+      folderKeys: ['before'],
+    });
+  }, [activeBeforeKeyword, beforeSearchInput, fetchWorkspace, loadingFolders.before]);
 
   useEffect(() => {
     if (!pendingSelectBeforeFileName) {
@@ -462,32 +533,46 @@ const QA = () => {
     if (!files || files.length === 0) {
       return;
     }
-    
+    const fileArray = Array.from(files);
+    const fileCount = fileArray.length;
+    showNotification(
+      fileCount > 1
+        ? `${fileCount}개 파일 업로드를 시작합니다.`
+        : `"${fileArray[0]?.name}" 업로드를 시작합니다.`,
+      'info',
+      2000
+    );
     setIsUploading(true);
     try {
-      const fileArray = Array.from(files);
       const response = await uploadQaHtmlFile(fileArray);
       
       // 응답이 배열인지 객체인지 확인
       const result = response.data;
       const uploadedFiles = Array.isArray(result) ? result : [result];
+      const normalizedFiles = uploadedFiles.filter(Boolean);
       
-      if (uploadedFiles.length === 1) {
-        const uploadedFileName = uploadedFiles[0]?.fileName || fileArray[0].name;
+      if (normalizedFiles.length === 1) {
+        const uploadedFileName = normalizedFiles[0]?.fileName || fileArray[0].name;
         showNotification(`"${uploadedFileName}" 파일이 업로드되었습니다.`, 'success');
         setPendingSelectBeforeFileName(uploadedFileName);
       } else {
-        showNotification(`${uploadedFiles.length}개 파일이 업로드되었습니다.`, 'success');
+        showNotification(`${normalizedFiles.length}개 파일이 업로드되었습니다.`, 'success');
         // 다중 업로드 시 첫 번째 파일 선택
-        if (uploadedFiles.length > 0 && uploadedFiles[0]?.fileName) {
-          setPendingSelectBeforeFileName(uploadedFiles[0].fileName);
+        if (normalizedFiles.length > 0 && normalizedFiles[0]?.fileName) {
+          setPendingSelectBeforeFileName(normalizedFiles[0].fileName);
         }
       }
       
-      await fetchWorkspace({ beforePage: 0 });
+      await fetchWorkspace({ beforePage: 0, folderKeys: ['before'] });
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 파일 업로드에 실패했습니다.';
-      showNotification(message, 'error');
+      showNotification(
+        fileCount > 1
+          ? `${fileCount}개 파일 업로드 실패: ${message}`
+          : message,
+        'error',
+        5000
+      );
     } finally {
       setIsUploading(false);
       event.target.value = '';
@@ -605,7 +690,7 @@ const QA = () => {
     try {
       await saveBeforeHtmlFile(selectedBeforeFile.fileName, documentHtml);
       showNotification('HTML 내용이 저장되었습니다.', 'success');
-      await fetchWorkspace();
+      await fetchWorkspace({ folderKeys: ['before'] });
       setBeforeHtml(documentHtml);
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 저장에 실패했습니다.';
@@ -835,7 +920,7 @@ const QA = () => {
       showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${sheets.length}개 시트)`, 'success');
       
       // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
-      await fetchWorkspace({ afterPage: 0 });
+      await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
     } catch (error) {
       const message = error.response?.data?.message || 'JSONL 변환에 실패했습니다.';
       showNotification(message, 'error');
@@ -1357,7 +1442,7 @@ const QA = () => {
       }
     }
     setSelectedAfterFiles([]);
-    await fetchWorkspace();
+    await fetchWorkspace({ folderKeys: ['after', 'dev'] });
     setIsPromoting(false);
   };
 
@@ -1369,8 +1454,11 @@ const QA = () => {
     if (folderData.totalPages > 0 && nextPage > folderData.totalPages - 1) {
       return;
     }
+    if (loadingFolders[folderKey]) {
+      return;
+    }
     setPages((prev) => ({ ...prev, [folderKey]: nextPage }));
-    fetchWorkspace({ [`${folderKey}Page`]: nextPage });
+    fetchWorkspace({ [`${folderKey}Page`]: nextPage, folderKeys: [folderKey] });
   };
 
   const renderPagination = (folderKey) => {
@@ -1378,6 +1466,7 @@ const QA = () => {
     if (folderData.totalPages <= 1) {
       return null;
     }
+    const folderLoading = !!loadingFolders[folderKey];
     
     const currentPage = folderData.page || 0;
     const totalPages = folderData.totalPages || 1;
@@ -1413,7 +1502,7 @@ const QA = () => {
         <button
           className="btn-secondary"
           onClick={() => handleFolderPageChange(folderKey, currentPage - 1)}
-          disabled={currentPage === 0 || loadingWorkspace}
+          disabled={currentPage === 0 || folderLoading}
           style={{ 
             minWidth: '36px',
             height: '36px',
@@ -1428,7 +1517,7 @@ const QA = () => {
             key={pageNum}
             className={pageNum === currentPage ? 'btn-primary' : 'btn-secondary'}
             onClick={() => handleFolderPageChange(folderKey, pageNum)}
-            disabled={loadingWorkspace}
+            disabled={folderLoading}
             style={{
               minWidth: '36px',
               height: '36px',
@@ -1443,7 +1532,7 @@ const QA = () => {
         <button
           className="btn-secondary"
           onClick={() => handleFolderPageChange(folderKey, currentPage + 1)}
-          disabled={currentPage >= totalPages - 1 || loadingWorkspace}
+          disabled={currentPage >= totalPages - 1 || folderLoading}
           style={{ 
             minWidth: '36px',
             height: '36px',
@@ -1459,6 +1548,7 @@ const QA = () => {
 
   const renderFolderSection = (folderKey) => {
     const folderData = workspace[folderKey] || createFolderState();
+    const folderLoading = !!loadingFolders[folderKey];
     const isAfter = folderKey === 'after';
     const isBefore = folderKey === 'before';
     
@@ -1503,7 +1593,7 @@ const QA = () => {
                     workspace.after.totalElements === selectedAfterFiles.length
                   }
                   onChange={(e) => handleToggleAllAfter(e.target.checked)}
-                  disabled={workspace.after.totalElements === 0}
+                  disabled={workspace.after.totalElements === 0 || folderLoading}
                 />
                 전체 선택
               </label>
@@ -1521,11 +1611,12 @@ const QA = () => {
               <input
                 type="text"
                 placeholder="파일명 검색..."
-                value={beforeSearchKeyword}
-                onChange={(e) => setBeforeSearchKeyword(e.target.value)}
-                onKeyPress={(e) => {
+                value={beforeSearchInput}
+                onChange={(e) => setBeforeSearchInput(e.target.value)}
+                onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    fetchWorkspace({ beforePage: 0, beforeKeyword: beforeSearchKeyword });
+                    e.preventDefault();
+                    handleBeforeSearch();
                   }
                 }}
                 style={{
@@ -1538,22 +1629,22 @@ const QA = () => {
               />
               <button
                 className="btn-secondary"
-                onClick={() => fetchWorkspace({ beforePage: 0, beforeKeyword: beforeSearchKeyword })}
-                disabled={loadingWorkspace}
+                onClick={handleBeforeSearch}
+                disabled={folderLoading}
               >
                 검색
               </button>
-              {beforeSearchKeyword && (
+              {(beforeSearchInput || activeBeforeKeyword) && (
                 <button
                   className="btn-secondary"
-                  onClick={() => {
-                    setBeforeSearchKeyword('');
-                    fetchWorkspace({ beforePage: 0, beforeKeyword: '' });
-                  }}
-                  disabled={loadingWorkspace}
+                  onClick={handleClearBeforeSearch}
+                  disabled={folderLoading}
                 >
                   초기화
                 </button>
+              )}
+              {folderLoading && (
+                <span style={{ color: '#6b7280', fontSize: '13px' }}>검색 중...</span>
               )}
             </div>
           )}
@@ -1579,7 +1670,7 @@ const QA = () => {
               </tr>
             </thead>
             <tbody>
-              {loadingWorkspace ? (
+              {folderLoading ? (
                 <tr>
                   <td colSpan={isAfter ? 5 : 4} className="empty-message">
                     로딩 중...

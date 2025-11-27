@@ -132,9 +132,13 @@ export const uploadQaHtmlFile = (fileOrFiles, config = {}) => {
   if (isMultiple) {
     // 다중 파일 업로드
     const files = Array.isArray(fileOrFiles) ? fileOrFiles : Array.from(fileOrFiles);
-    files.forEach((file) => {
-      formData.append('files', file);
-    });
+    if (files.length === 1) {
+      formData.append('file', files[0]);
+    } else {
+      files.forEach((file) => {
+        formData.append('files', file);
+      });
+    }
   } else {
     // 단일 파일 업로드
     formData.append('file', fileOrFiles);
