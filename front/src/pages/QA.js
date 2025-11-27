@@ -47,6 +47,11 @@ const TABLE_STYLE_RULES = [
   '  th, td { border: 1px solid #000000; }',
   '  h2 { margin-top: 30px; margin-bottom: 10px; }',
 ].join('\n');
+const TABLE_DEFAULT_ATTRIBUTES = Object.freeze({
+  border: '1',
+  cellspacing: '0',
+  cellpadding: '6',
+});
 const BASE_TABLE_STYLE_BLOCK = [
   '<style>',
   TABLE_STYLE_RULES,
@@ -67,6 +72,64 @@ const HEAD_TAG_REGEX = /<head[^>]*>([\s\S]*?)<\/head>/i;
 const BODY_CONTENT_REGEX = /<body[^>]*>([\s\S]*?)<\/body>/i;
 const DEFAULT_HTML_LANG = 'ko';
 const DEFAULT_HTML_TITLE = 'Tables';
+
+const normalizeHtmlForTransport = (rawHtml = '') => {
+  if (typeof rawHtml !== 'string') {
+    return '';
+  }
+  return rawHtml.replace(/\r/g, '').replace(/\n/g, '');
+};
+
+const applyDefaultTableAttributes = (html = '') => {
+  const source = typeof html === 'string' ? html : '';
+  if (!source.trim() || !/<table/i.test(source)) {
+    return source;
+  }
+
+  const hasHtmlWrapper = HTML_TAG_REGEX.test(source);
+  const hasDoctype = DOCTYPE_REGEX.test(source);
+  const applyAttributes = (tables) => {
+    tables.forEach((table) => {
+      Object.entries(TABLE_DEFAULT_ATTRIBUTES).forEach(([attr, value]) => {
+        if (table.getAttribute(attr) !== value) {
+          table.setAttribute(attr, value);
+        }
+      });
+    });
+  };
+
+  try {
+    if (hasHtmlWrapper) {
+      if (typeof DOMParser === 'undefined') {
+        return source;
+      }
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(source, 'text/html');
+      const tables = doc.querySelectorAll('table');
+      if (tables.length === 0) {
+        return source;
+      }
+      applyAttributes(tables);
+      const serialized = doc.documentElement?.outerHTML || source;
+      return hasDoctype ? `<!DOCTYPE html>\n${serialized}` : serialized;
+    }
+
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return source;
+    }
+    const container = document.createElement('div');
+    container.innerHTML = source;
+    const tables = container.querySelectorAll('table');
+    if (tables.length === 0) {
+      return source;
+    }
+    applyAttributes(tables);
+    return container.innerHTML;
+  } catch (error) {
+    console.warn('applyDefaultTableAttributes error:', error);
+    return source;
+  }
+};
 
 const stripTableStyleBlocks = (html = '') => {
   if (!html) return '';
@@ -178,7 +241,8 @@ const buildFullHtmlDocument = (html = '', { title } = {}) => {
 
 const ensureTableBorderStyles = (html = '') => {
   const source = typeof html === 'string' ? html : '';
-  const cleanedSource = source.replace(TABLE_STYLE_REGEX, '');
+  const withDefaultAttributes = applyDefaultTableAttributes(source);
+  const cleanedSource = withDefaultAttributes.replace(TABLE_STYLE_REGEX, '');
 
   if (!cleanedSource.trim()) {
     return BASE_TABLE_STYLE_BLOCK;
@@ -480,6 +544,61 @@ const QA = () => {
     fetchWorkspace();
   }, [fetchWorkspace]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    let attempts = 0;
+    const maxAttempts = 10;
+    const mergeAttributes = (attrs = {}) => ({
+      ...TABLE_DEFAULT_ATTRIBUTES,
+      ...attrs,
+    });
+    const applyDefaultsToWysiwyg = () => {
+      const tiny = window.tinymce;
+      if (!tiny) {
+        return false;
+      }
+
+      const patchEditorSettings = (editor) => {
+        if (!editor) {
+          return;
+        }
+        editor.settings = editor.settings || {};
+        editor.settings.table_default_attributes = mergeAttributes(
+          editor.settings.table_default_attributes || {}
+        );
+      };
+
+      if (typeof tiny.init === 'function' && !tiny.__qaTableDefaultsPatched) {
+        const originalInit = tiny.init.bind(tiny);
+        tiny.init = (options = {}) =>
+          originalInit({
+            ...options,
+            table_default_attributes: mergeAttributes(options.table_default_attributes || {}),
+          });
+        tiny.__qaTableDefaultsPatched = true;
+      }
+
+      if (Array.isArray(tiny.editors) && tiny.editors.length > 0) {
+        tiny.editors.forEach(patchEditorSettings);
+      } else if (tiny.activeEditor) {
+        patchEditorSettings(tiny.activeEditor);
+      }
+
+      return true;
+    };
+
+    const intervalId = setInterval(() => {
+      attempts += 1;
+      if (applyDefaultsToWysiwyg() || attempts >= maxAttempts) {
+        clearInterval(intervalId);
+      }
+    }, 500);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   const handleBeforeSearch = useCallback(() => {
     if (loadingFolders.before) {
       return;
@@ -686,12 +805,17 @@ const QA = () => {
     }
     const htmlTitle = getHtmlTitle(selectedBeforeFile.fileName);
     const documentHtml = buildStandardizedHtmlDocument(latestHtml || '', { title: htmlTitle });
+    const normalizedDocumentHtml = normalizeHtmlForTransport(documentHtml);
     setIsSavingBeforeHtml(true);
     try {
-      await saveBeforeHtmlFile(selectedBeforeFile.fileName, documentHtml);
+      await saveBeforeHtmlFile(selectedBeforeFile.fileName, normalizedDocumentHtml);
       showNotification('HTML 내용이 저장되었습니다.', 'success');
       await fetchWorkspace({ folderKeys: ['before'] });
-      setBeforeHtml(documentHtml);
+      setBeforeHtml(normalizedDocumentHtml);
+      if (normalizedDocumentHtml !== latestHtml) {
+        setEditedHtml(normalizedDocumentHtml);
+        saveToHistory(normalizedDocumentHtml);
+      }
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 저장에 실패했습니다.';
       showNotification(message, 'error');
@@ -816,6 +940,7 @@ const QA = () => {
         latestHtml = htmlWithStyles;
       }
       const standardizedHtml = buildStandardizedHtmlDocument(latestHtml || '', { title: htmlTitle });
+      const transportReadyHtml = normalizeHtmlForTransport(standardizedHtml);
       const sandbox = document.createElement('div');
       sandbox.innerHTML = standardizedHtml || '';
 
@@ -843,7 +968,7 @@ const QA = () => {
 
       const sheetPayload = {
         sheetName: baseFileName,
-        htmlContent: standardizedHtml,
+        htmlContent: transportReadyHtml,
       };
 
       if (imageBase64List.length > 0) {
