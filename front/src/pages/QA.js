@@ -205,6 +205,11 @@ const ensureTableBorderStyles = (html = '') => {
   return `${BASE_TABLE_STYLE_BLOCK}\n${cleanedSource}`;
 };
 
+const buildStandardizedHtmlDocument = (html = '', { title } = {}) => {
+  const htmlWithStyles = ensureTableBorderStyles(html || '');
+  return buildFullHtmlDocument(htmlWithStyles, { title });
+};
+
 // 테이블 편집 유틸리티 함수들
 const buildTableCellMaps = (tableElement, { assignDataset = false, tableIndex = 0 } = {}) => {
   if (!tableElement) {
@@ -595,7 +600,7 @@ const QA = () => {
       latestHtml = htmlWithStyles;
     }
     const htmlTitle = getHtmlTitle(selectedBeforeFile.fileName);
-    const documentHtml = buildFullHtmlDocument(latestHtml || '', { title: htmlTitle });
+    const documentHtml = buildStandardizedHtmlDocument(latestHtml || '', { title: htmlTitle });
     setIsSavingBeforeHtml(true);
     try {
       await saveBeforeHtmlFile(selectedBeforeFile.fileName, documentHtml);
@@ -683,7 +688,7 @@ const QA = () => {
       }
       const sandbox = document.createElement('div');
       sandbox.innerHTML = latestHtml || '';
-      const wrapHtmlContent = (html) => buildFullHtmlDocument(html || '', { title: htmlTitle });
+      const wrapHtmlContent = (html) => buildStandardizedHtmlDocument(html || '', { title: htmlTitle });
       
       // HTML에서 모든 <table> 태그 찾기
       const tables = Array.from(sandbox.querySelectorAll('table'));
