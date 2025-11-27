@@ -700,6 +700,50 @@ const QA = () => {
     }
   };
 
+  const extractTableSectionsByHeading = (rootElement) => {
+    if (!rootElement) return [];
+
+    const sections = [];
+    const usedTables = new Set();
+    const headings = Array.from(rootElement.querySelectorAll('h2'));
+    const allTables = Array.from(rootElement.querySelectorAll('table'));
+
+    headings.forEach((heading) => {
+      let sibling = heading.nextElementSibling;
+      let nextTable = null;
+
+      while (sibling) {
+        if (sibling.tagName && sibling.tagName.toLowerCase() === 'table') {
+          nextTable = sibling;
+          break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+
+      if (!nextTable || usedTables.has(nextTable)) {
+        return;
+      }
+
+      usedTables.add(nextTable);
+
+      sections.push({
+        title: (heading.textContent || '').trim(),
+        fragmentHtml: `${heading.outerHTML}\n${nextTable.outerHTML}`,
+      });
+    });
+
+    allTables
+      .filter((table) => !usedTables.has(table))
+      .forEach((table) => {
+        sections.push({
+          title: table.getAttribute('data-table-name')?.trim() || '',
+          fragmentHtml: table.outerHTML,
+        });
+      });
+
+    return sections;
+  };
+
   // HTML 테이블을 이미지(base64)로 변환
   const convertTableToImage = async (htmlContent, sheetName) => {
     // 임시 DOM 요소 생성 (화면 밖에 배치)
