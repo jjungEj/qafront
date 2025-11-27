@@ -700,6 +700,50 @@ const QA = () => {
     }
   };
 
+  const extractTableSectionsByHeading = (rootElement) => {
+    if (!rootElement) return [];
+
+    const sections = [];
+    const usedTables = new Set();
+    const headings = Array.from(rootElement.querySelectorAll('h2'));
+    const allTables = Array.from(rootElement.querySelectorAll('table'));
+
+    headings.forEach((heading) => {
+      let sibling = heading.nextElementSibling;
+      let nextTable = null;
+
+      while (sibling) {
+        if (sibling.tagName && sibling.tagName.toLowerCase() === 'table') {
+          nextTable = sibling;
+          break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+
+      if (!nextTable || usedTables.has(nextTable)) {
+        return;
+      }
+
+      usedTables.add(nextTable);
+
+      sections.push({
+        title: (heading.textContent || '').trim(),
+        fragmentHtml: `${heading.outerHTML}\n${nextTable.outerHTML}`,
+      });
+    });
+
+    allTables
+      .filter((table) => !usedTables.has(table))
+      .forEach((table) => {
+        sections.push({
+          title: table.getAttribute('data-table-name')?.trim() || '',
+          fragmentHtml: table.outerHTML,
+        });
+      });
+
+    return sections;
+  };
+
   // HTML 테이블을 이미지(base64)로 변환
   const convertTableToImage = async (htmlContent, sheetName) => {
     // 임시 DOM 요소 생성 (화면 밖에 배치)
@@ -775,69 +819,39 @@ const QA = () => {
       sandbox.innerHTML = latestHtml || '';
       const wrapHtmlContent = (html) => buildStandardizedHtmlDocument(html || '', { title: htmlTitle });
       
-      // HTML에서 모든 <table> 태그 찾기
       const tables = Array.from(sandbox.querySelectorAll('table'));
       const tableCount = tables.length;
+      const headingSections = extractTableSectionsByHeading(sandbox);
       
       const sheets = [];
       
-      // ===== 테이블이 2개 이상인 경우 =====
-      // 하나의 sheet에 모든 테이블 HTML 포함, 각 테이블 이미지를 imageBase64List 배열로 전송
-      // 백엔드가 각 테이블을 분리하고 각 테이블에 해당 이미지를 매핑
-      if (tableCount >= 2) {
-        // 전체 HTML 내용 (모든 테이블 포함)
-        const htmlContentFragment = latestHtml.trim();
-        if (!htmlContentFragment) {
-          showNotification('변환할 내용이 없습니다.', 'warning');
+      // ===== <h2> 별 테이블 분리 =====
+      if (headingSections.length > 0) {
+        for (let index = 0; index < headingSections.length; index++) {
+          const section = headingSections[index];
+          const fragmentHtml = section.fragmentHtml?.trim();
+          if (!fragmentHtml) continue;
+
+          const resolvedName =
+            section.title ||
+            `${baseFileName}-Table${index + 1}` ||
+            `Table${index + 1}`;
+
+          const imageBase64 = await convertTableToImage(fragmentHtml, resolvedName);
+          const htmlContent = wrapHtmlContent(fragmentHtml);
+
+          sheets.push({
+            sheetName: resolvedName,
+            htmlContent,
+            imageBase64: imageBase64 || '',
+          });
+        }
+
+        if (sheets.length === 0) {
+          showNotification('제목과 테이블을 매칭할 수 없습니다.', 'warning');
           return;
         }
-        const htmlContent = wrapHtmlContent(htmlContentFragment);
-        
-        // 시트명 결정 (data-sheet-name 속성 또는 파일명 사용)
-        const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
-        const nameCandidates = [
-          sheetContainers[0]?.getAttribute('data-sheet-name'),
-          sheetContainers[0]?.getAttribute('data-name'),
-          sheetContainers[0]?.querySelector('[data-sheet-name]')?.getAttribute('data-sheet-name'),
-          sheetContainers[0]?.querySelector('.sheet-name')?.textContent,
-          sheetContainers[0]?.querySelector('h4')?.textContent,
-        ];
-        const resolvedName =
-          nameCandidates.find((name) => name && name.trim())?.trim() ||
-          baseFileName ||
-          'Sheet1';
-        
-        // 각 테이블마다 별도의 이미지 생성하여 imageBase64List 배열에 저장
-        const imageBase64List = [];
-        for (let index = 0; index < tables.length; index++) {
-          const table = tables[index];
-          
-          // 각 테이블을 독립적인 HTML로 감싸기 (이미지 변환을 위해)
-          const tableWrapper = document.createElement('div');
-          tableWrapper.style.backgroundColor = '#ffffff';
-          tableWrapper.style.padding = '8px';
-          const clonedTable = table.cloneNode(true);
-          tableWrapper.appendChild(clonedTable);
-          
-          const tableHtml = tableWrapper.innerHTML.trim();
-          if (!tableHtml) {
-            continue;
-          }
-          
-          // 각 테이블을 이미지로 변환 (html2canvas 사용)
-          const imageBase64 = await convertTableToImage(tableHtml, `${resolvedName}-Table${index + 1}`);
-          if (imageBase64) {
-            imageBase64List.push(imageBase64);
-          }
-        }
-        
-        // 하나의 sheet에 모든 테이블 HTML과 각 테이블 이미지 배열 전송
-        sheets.push({
-          sheetName: resolvedName,
-          htmlContent, // 모든 테이블이 포함된 전체 HTML
-          imageBase64List: imageBase64List.length > 0 ? imageBase64List : undefined, // 각 테이블별 이미지 배열
-        });
-      } 
+      }
       // ===== 테이블이 1개인 경우 =====
       // 기존 방식 유지: imageBase64 단일 필드 사용
       else if (tableCount === 1) {
