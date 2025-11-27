@@ -85,17 +85,53 @@ const decodeEscapedHtmlString = (html = '') => {
     return '';
   }
 
-  if (!html.includes('\\')) {
-    return html;
+  let decoded = html;
+
+  const tryJsonDecode = (value) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (error) {
+        return value;
+      }
+    }
+
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+      try {
+        const unwrapped = trimmed.slice(1, -1).replace(/"/g, '\\"');
+        return JSON.parse(`"${unwrapped}"`);
+      } catch (error) {
+        return value;
+      }
+    }
+
+    return value;
+  };
+
+  const unescapeOnce = (value) =>
+    value
+      .replace(/\\r\\n/gi, '\n')
+      .replace(/\\n/gi, '\n')
+      .replace(/\\t/gi, '\t')
+      .replace(/\\\//g, '/')
+      .replace(/\\(["'])/g, '$1')
+      .replace(/\\\\/g, '\\');
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const previous = decoded;
+    decoded = tryJsonDecode(decoded);
+    decoded = unescapeOnce(decoded);
+    if (decoded === previous || !decoded.includes('\\')) {
+      break;
+    }
   }
 
-  return html
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\"/g, '"')
-    .replace(/\\'/g, "'")
-    .replace(/\\\\/g, '\\');
+  return decoded;
 };
 
 const applyDefaultTableAttributes = (html = '') => {
