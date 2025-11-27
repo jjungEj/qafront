@@ -41,17 +41,143 @@ const createFolderState = () => ({
 });
 
 const TABLE_STYLE_ID = 'qa-table-border-style';
-const TABLE_STYLE_BLOCK = [
-  `<style id="${TABLE_STYLE_ID}" data-qa-style="table-border">`,
+const TABLE_STYLE_RULES = [
   '  table { border-collapse: collapse; }',
   '  th, td { border: 1px solid #000000; }',
   '  h2 { margin-top: 30px; margin-bottom: 10px; }',
+].join('\n');
+const TABLE_STYLE_BLOCK = [
+  `<style id="${TABLE_STYLE_ID}" data-qa-style="table-border">`,
+  TABLE_STYLE_RULES,
+  '</style>',
+].join('\n');
+const BASE_TABLE_STYLE_BLOCK = [
+  '<style>',
+  TABLE_STYLE_RULES,
   '</style>',
 ].join('\n');
 const TABLE_STYLE_REGEX = new RegExp(
   `<style[^>]*id=["']${TABLE_STYLE_ID}["'][^>]*>[\\s\\S]*?<\\/style>`,
   'i'
 );
+const BASE_TABLE_STYLE_REGEX = /<style[^>]*>\s*table\s*\{\s*border-collapse:\s*collapse;?\s*\}\s*th,\s*td\s*\{\s*border:\s*1px\s*solid\s*#000000;?\s*\}\s*h2\s*\{\s*margin-top:\s*30px;?\s*margin-bottom:\s*10px;?\s*\}\s*<\/style>/gi;
+const TITLE_TAG_REGEX = /<title[\s\S]*?<\/title>/gi;
+const META_CHARSET_REGEX = /<meta[^>]*charset[^>]*>/gi;
+const META_VIEWPORT_REGEX = /<meta[^>]*name=["']viewport["'][^>]*>/gi;
+const DOCTYPE_REGEX = /<!DOCTYPE[^>]*>/gi;
+const HTML_TAG_REGEX = /<html([^>]*)>/i;
+const BODY_TAG_REGEX = /<body([^>]*)>/i;
+const HEAD_TAG_REGEX = /<head[^>]*>([\s\S]*?)<\/head>/i;
+const BODY_CONTENT_REGEX = /<body[^>]*>([\s\S]*?)<\/body>/i;
+const DEFAULT_HTML_LANG = 'ko';
+const DEFAULT_HTML_TITLE = 'Tables';
+
+const stripTableStyleBlocks = (html = '') => {
+  if (!html) return '';
+  return html
+    .replace(TABLE_STYLE_REGEX, '')
+    .replace(BASE_TABLE_STYLE_REGEX, '')
+    .trim();
+};
+
+const extractHeadContent = (html = '') => {
+  const match = html.match(HEAD_TAG_REGEX);
+  if (!match) {
+    return '';
+  }
+  return match[1]?.trim() || '';
+};
+
+const extractBodyAttributes = (html = '') => {
+  const match = html.match(BODY_TAG_REGEX);
+  return match && match[1] ? match[1].trim() : '';
+};
+
+const extractHtmlAttributes = (html = '') => {
+  const match = html.match(HTML_TAG_REGEX);
+  return match && match[1] ? match[1].trim() : '';
+};
+
+const stripHeadMetaAndTitle = (headHtml = '') => {
+  if (!headHtml) {
+    return '';
+  }
+  return headHtml
+    .replace(TITLE_TAG_REGEX, '')
+    .replace(META_CHARSET_REGEX, '')
+    .replace(META_VIEWPORT_REGEX, '')
+    .trim();
+};
+
+const extractBodyContent = (html = '') => {
+  if (!html) {
+    return '';
+  }
+  const bodyMatch = html.match(BODY_CONTENT_REGEX);
+  if (bodyMatch) {
+    return bodyMatch[1]?.trim() || '';
+  }
+  const htmlMatch = html.match(/<html[^>]*>([\s\S]*?)<\/html>/i);
+  if (htmlMatch) {
+    const withoutHead = htmlMatch[1].replace(HEAD_TAG_REGEX, '');
+    return withoutHead.trim();
+  }
+  return html.replace(DOCTYPE_REGEX, '').trim();
+};
+
+const escapeHtml = (value = '') =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const getJsonlTitle = (fileName = '') => {
+  const baseName = fileName ? fileName.replace(/\.[^/.]+$/, '') : '';
+  const resolved = baseName || DEFAULT_HTML_TITLE;
+  return `${resolved}.jsonl`;
+};
+
+const buildFullHtmlDocument = (html = '', { title } = {}) => {
+  const headContent = stripTableStyleBlocks(stripHeadMetaAndTitle(extractHeadContent(html)));
+  const bodyContent = stripTableStyleBlocks(extractBodyContent(html));
+  const htmlAttributes = extractHtmlAttributes(html);
+  const bodyAttributes = extractBodyAttributes(html);
+  const hasLang = /lang\s*=/.test(htmlAttributes || '');
+  const htmlAttrParts = [];
+  if (htmlAttributes) {
+    htmlAttrParts.push(htmlAttributes);
+  }
+  if (!hasLang) {
+    htmlAttrParts.push(`lang="${DEFAULT_HTML_LANG}"`);
+  }
+  const htmlOpenTag = htmlAttrParts.length > 0
+    ? `<html ${htmlAttrParts.join(' ')}>`
+    : `<html lang="${DEFAULT_HTML_LANG}">`;
+  const bodyOpenTag = bodyAttributes ? `<body ${bodyAttributes}>` : '<body>';
+  const sanitizedHeadSegments = [
+    '<head>',
+    '  <meta charset="UTF-8">',
+    '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+    `  <title>${escapeHtml(title?.trim() || DEFAULT_HTML_TITLE)}</title>`,
+    BASE_TABLE_STYLE_BLOCK,
+    TABLE_STYLE_BLOCK,
+  ];
+  if (headContent) {
+    sanitizedHeadSegments.push(headContent);
+  }
+  sanitizedHeadSegments.push('</head>');
+  return [
+    '<!DOCTYPE html>',
+    htmlOpenTag,
+    sanitizedHeadSegments.join('\n'),
+    bodyOpenTag,
+    bodyContent,
+    '</body>',
+    '</html>',
+  ].join('\n');
+};
 
 const ensureTableBorderStyles = (html = '') => {
   const source = typeof html === 'string' ? html : '';
@@ -457,13 +583,16 @@ const QA = () => {
     if (htmlWithStyles !== latestHtml) {
       setEditedHtml(htmlWithStyles);
       saveToHistory(htmlWithStyles);
+      latestHtml = htmlWithStyles;
     }
+    const jsonlTitle = getJsonlTitle(selectedBeforeFile.fileName);
+    const documentHtml = buildFullHtmlDocument(latestHtml || '', { title: jsonlTitle });
     setIsSavingBeforeHtml(true);
     try {
-      await saveBeforeHtmlFile(selectedBeforeFile.fileName, htmlWithStyles);
+      await saveBeforeHtmlFile(selectedBeforeFile.fileName, documentHtml);
       showNotification('HTML 내용이 저장되었습니다.', 'success');
       await fetchWorkspace();
-      setBeforeHtml(htmlWithStyles);
+      setBeforeHtml(documentHtml);
     } catch (error) {
       const message = error.response?.data?.message || 'HTML 저장에 실패했습니다.';
       showNotification(message, 'error');
@@ -535,6 +664,7 @@ const QA = () => {
       showNotification('이미지 변환 중...', 'info');
       
       const baseFileName = selectedBeforeFile.fileName.replace(/\.[^/.]+$/, '') || 'Sheet1';
+      const jsonlTitle = getJsonlTitle(selectedBeforeFile.fileName);
       let latestHtml = getSanitizedHtmlSnapshot() ?? editedHtml;
       const htmlWithStyles = ensureTableBorderStyles(latestHtml || '');
       if (htmlWithStyles !== latestHtml) {
@@ -544,6 +674,7 @@ const QA = () => {
       }
       const sandbox = document.createElement('div');
       sandbox.innerHTML = latestHtml || '';
+      const wrapHtmlContent = (html) => buildFullHtmlDocument(html || '', { title: jsonlTitle });
       
       // HTML에서 모든 <table> 태그 찾기
       const tables = Array.from(sandbox.querySelectorAll('table'));
@@ -556,11 +687,12 @@ const QA = () => {
       // 백엔드가 각 테이블을 분리하고 각 테이블에 해당 이미지를 매핑
       if (tableCount >= 2) {
         // 전체 HTML 내용 (모든 테이블 포함)
-        const htmlContent = latestHtml.trim();
-        if (!htmlContent) {
+        const htmlContentFragment = latestHtml.trim();
+        if (!htmlContentFragment) {
           showNotification('변환할 내용이 없습니다.', 'warning');
           return;
         }
+        const htmlContent = wrapHtmlContent(htmlContentFragment);
         
         // 시트명 결정 (data-sheet-name 속성 또는 파일명 사용)
         const sheetContainers = Array.from(sandbox.querySelectorAll('.sheet-container'));
@@ -617,8 +749,8 @@ const QA = () => {
 
         for (let index = 0; index < targets.length; index++) {
           const section = targets[index];
-          const htmlContent = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
-          if (!htmlContent) {
+          const fragmentHtml = (hasMultipleSheets ? section.innerHTML : sandbox.innerHTML || '').trim();
+          if (!fragmentHtml) {
             continue;
           }
           // 시트명 결정
@@ -635,7 +767,8 @@ const QA = () => {
             (hasMultipleSheets ? `${baseFileName}-Sheet${index + 1}` : baseFileName) ||
             `Sheet${index + 1}`;
           // 전체 HTML을 하나의 이미지로 변환
-          const imageBase64 = await convertTableToImage(htmlContent, resolvedName);
+          const imageBase64 = await convertTableToImage(fragmentHtml, resolvedName);
+          const htmlContent = wrapHtmlContent(fragmentHtml);
           sheets.push({
             sheetName: resolvedName,
             htmlContent,
@@ -647,9 +780,10 @@ const QA = () => {
         if (sheets.length === 0) {
           const fallbackName = baseFileName || 'Sheet1';
           const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
+          const htmlContent = wrapHtmlContent(latestHtml);
           sheets.push({
             sheetName: fallbackName,
-            htmlContent: latestHtml,
+            htmlContent,
             imageBase64: imageBase64 || '',
           });
         }
@@ -659,9 +793,10 @@ const QA = () => {
       else {
         const fallbackName = baseFileName || 'Sheet1';
         const imageBase64 = await convertTableToImage(latestHtml, fallbackName);
+        const htmlContent = wrapHtmlContent(latestHtml);
         sheets.push({
           sheetName: fallbackName,
-          htmlContent: latestHtml,
+          htmlContent,
           imageBase64: imageBase64 || '',
         });
       }
