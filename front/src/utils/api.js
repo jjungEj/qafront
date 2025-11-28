@@ -156,6 +156,32 @@ export const uploadQaHtmlFile = (fileOrFiles, config = {}) => {
 };
 
 /**
+ * JSON/JSONL 업로드 후 예측 결과 요청
+ *
+ * @param {File} file - 업로드할 JSON 또는 JSONL 파일
+ * @param {Object} options
+ * @param {boolean} options.sendImageAsBase64 - 이미지 정보를 Base64로 포함할지 여부(추후 확장용)
+ */
+export const predictQaJsonFile = (file, { sendImageAsBase64 = false } = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('업로드할 JSON 파일이 필요합니다.'));
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  if (sendImageAsBase64) {
+    formData.append('sendImageBase64', 'true');
+  }
+
+  return api.post('/qa/files/json/predict', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
+/**
  * HTML 파일 내용 조회
  *
  * @param {'after'|'before'|'dev'} folder
