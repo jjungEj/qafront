@@ -19,6 +19,7 @@ import {
   convertHtmlToJsonl,
   promoteAfterFile,
   startInferenceResultJob,
+  predictQaJsonFile,
 } from '../utils/api';
 import { formatDateTime, formatDateTimeWithoutSeconds, formatFileSize } from '../utils/format';
 import { NotificationContainer } from '../components/Notification';
@@ -418,6 +419,12 @@ const QA = () => {
     before: false,
     dev: false,
   });
+  const [isJsonPredicting, setIsJsonPredicting] = useState(false);
+  const [jsonPredictError, setJsonPredictError] = useState(null);
+  const [jsonPredictEntries, setJsonPredictEntries] = useState([]);
+  const [jsonWorkspacePath, setJsonWorkspacePath] = useState('');
+  const [jsonDownloadInfo, setJsonDownloadInfo] = useState({ json: null, jsonl: null });
+  const [sendImageAsBase64, setSendImageAsBase64] = useState(false);
   
   // 테이블 편집 관련 state
   const [isEditingTable, setIsEditingTable] = useState(false);
@@ -429,6 +436,7 @@ const QA = () => {
   const editingCellRef = useRef(null);
   const tableContainerRef = useRef(null);
   const sheetContentRef = useRef(null);
+  const jsonUploadInputRef = useRef(null);
 
   const getEditableTables = useCallback(() => {
     if (!tableContainerRef.current) {
@@ -701,6 +709,80 @@ const QA = () => {
     historyIndexRef.current = historyIndex;
   }, [historyIndex]);
 
+  const decodeBase64ToBlobUrl = useCallback(
+    (base64Value, { mimeType = 'application/octet-stream', fileName = 'download' } = {}) => {
+      if (!base64Value || typeof window === 'undefined') {
+        return null;
+      }
+      try {
+        const normalized = base64Value.includes(',')
+          ? base64Value.split(',').pop()
+          : base64Value;
+        const binaryString = window.atob(normalized.trim());
+        const length = binaryString.length;
+        const bytes = new Uint8Array(length);
+        for (let i = 0; i < length; i += 1) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        return { url, fileName };
+      } catch (error) {
+        console.error('Base64 → Blob 변환 실패:', error);
+        return null;
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (jsonDownloadInfo?.json?.url) {
+        URL.revokeObjectURL(jsonDownloadInfo.json.url);
+      }
+      if (jsonDownloadInfo?.jsonl?.url) {
+        URL.revokeObjectURL(jsonDownloadInfo.jsonl.url);
+      }
+    };
+  }, [jsonDownloadInfo]);
+
+  const normalizeJsonPredictEntries = useCallback((payload) => {
+    if (!payload) {
+      return [];
+    }
+    if (Array.isArray(payload)) {
+      return payload.map((entry, index) => ({
+        id: entry?.id ?? entry?.fileName ?? entry?.sheetName ?? `entry-${index}`,
+        label: entry?.fileName || entry?.sheetName || `결과 ${index + 1}`,
+        predictHtml: entry?.predictHtml || entry?.html || '',
+        imagePath: entry?.imagePath || entry?.imageUrl || '',
+        imageBase64: entry?.imageBase64 || null,
+      }));
+    }
+    const rawEntries =
+      payload.files ||
+      payload.resultEntries ||
+      payload.results ||
+      payload.entries ||
+      [];
+    if (Array.isArray(rawEntries)) {
+      return rawEntries.map((entry, index) => ({
+        id: entry?.id ?? entry?.fileName ?? entry?.sheetName ?? `entry-${index}`,
+        label: entry?.fileName || entry?.sheetName || `결과 ${index + 1}`,
+        predictHtml: entry?.predictHtml || entry?.html || '',
+        imagePath: entry?.imagePath || entry?.imageUrl || '',
+        imageBase64: entry?.imageBase64 || null,
+      }));
+    }
+    return Object.entries(rawEntries).map(([key, value], index) => ({
+      id: key,
+      label: value?.fileName || value?.sheetName || key || `결과 ${index + 1}`,
+      predictHtml: value?.predictHtml || value?.html || '',
+      imagePath: value?.imagePath || value?.imageUrl || '',
+      imageBase64: value?.imageBase64 || null,
+    }));
+  }, []);
+
   const handleBeforeUploadChange = async (event) => {
     const files = event.target.files;
     if (!files || files.length === 0) {
@@ -751,6 +833,91 @@ const QA = () => {
       event.target.value = '';
     }
   };
+
+  const handleJsonUploadButtonClick = useCallback(() => {
+    if (jsonUploadInputRef.current) {
+      jsonUploadInputRef.current.click();
+    }
+  }, []);
+
+  const handleJsonPredictUploadChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setJsonPredictError(null);
+    setIsJsonPredicting(true);
+    setJsonPredictEntries([]);
+    showNotification(`"${file.name}" JSON 업로드를 시작합니다.`, 'info', 2000);
+    try {
+      const response = await predictQaJsonFile(file, { sendImageAsBase64 });
+      const payload = response?.data?.data ?? response?.data ?? {};
+      const entries = normalizeJsonPredictEntries(payload);
+      setJsonPredictEntries(entries);
+      setJsonWorkspacePath(
+        payload?.workspacePath ||
+          payload?.jsonWorkspacePath ||
+          payload?.serverFilePath ||
+          ''
+      );
+      setJsonDownloadInfo({
+        json: decodeBase64ToBlobUrl(payload?.jsonFileBase64, {
+          mimeType: 'application/json',
+          fileName: payload?.jsonFileName || 'predict.json',
+        }),
+        jsonl: decodeBase64ToBlobUrl(payload?.jsonlFileBase64, {
+          mimeType: 'application/json',
+          fileName: payload?.jsonlFileName || 'predict.jsonl',
+        }),
+      });
+      if (entries.length === 0) {
+        showNotification('예측 결과가 비어 있습니다.', 'warning');
+      } else {
+        showNotification('JSON 예측이 완료되었습니다.', 'success');
+      }
+    } catch (error) {
+      const fallbackMessage =
+        Array.isArray(error.response?.data?.errors)
+          ? error.response.data.errors.map((err) => err.message || err).join(', ')
+          : null;
+      const message =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        fallbackMessage ||
+        error.message ||
+        'JSON 업로드에 실패했습니다.';
+      setJsonPredictError(message);
+      setJsonPredictEntries([]);
+      setJsonWorkspacePath('');
+      setJsonDownloadInfo({ json: null, jsonl: null });
+      showNotification(message, 'error', 6000);
+    } finally {
+      setIsJsonPredicting(false);
+      if (event?.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  const handleJsonDownload = useCallback(
+    (type) => {
+      const target = jsonDownloadInfo?.[type];
+      if (!target?.url) {
+        showNotification('다운로드할 파일이 없습니다.', 'warning');
+        return;
+      }
+      if (typeof document === 'undefined') {
+        return;
+      }
+      const link = document.createElement('a');
+      link.href = target.url;
+      link.download = target.fileName || `${type}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+    [jsonDownloadInfo, showNotification]
+  );
 
   const handleSelectBeforeFile = async (file) => {
     if (!file) {
@@ -1816,6 +1983,29 @@ const QA = () => {
               {folderLoading && (
                 <span style={{ color: '#6b7280', fontSize: '13px' }}>검색 중...</span>
               )}
+              <button
+                className="btn-secondary"
+                onClick={handleJsonUploadButtonClick}
+                disabled={isJsonPredicting}
+              >
+                {isJsonPredicting ? 'JSON 업로드 중...' : 'JSON 업로드'}
+              </button>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '13px',
+                  color: '#4b5563',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={sendImageAsBase64}
+                  onChange={(e) => setSendImageAsBase64(e.target.checked)}
+                />
+                이미지 Base64 전달 (준비 중)
+              </label>
             </div>
           )}
         </div>
@@ -1939,6 +2129,13 @@ const QA = () => {
         notifications={notifications}
         removeNotification={removeNotification}
       />
+      <input
+        type="file"
+        ref={jsonUploadInputRef}
+        style={{ display: 'none' }}
+        accept=".json,.jsonl,application/json"
+        onChange={handleJsonPredictUploadChange}
+      />
       <h1 className="page-title">QA</h1>
       <div className="page-content">
         {/* 새로고침 버튼 */}
@@ -1973,6 +2170,194 @@ const QA = () => {
               disabled={isUploading}
             />
             {isUploading && <p style={{ color: '#6b7280', marginTop: '4px' }}>업로드 중...</p>}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '32px' }}>
+          <div
+            style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              padding: '16px',
+              backgroundColor: '#f9fafb',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap',
+                gap: '16px',
+              }}
+            >
+              <div style={{ flex: '1 1 240px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px' }}>JSON 예측 미리보기</h3>
+                <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>
+                  JSON/JSONL 파일을 업로드하면 서버 예측 결과(predictHtml)를 표 형태로 확인하고,
+                  JSON/JSONL 파일을 바로 내려받을 수 있습니다.
+                </p>
+                <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '13px' }}>
+                  로컬 절대경로 이미지는 보안상 브라우저에서 열리지 않으므로, 동일 경로를 파일 탐색기에서 직접 열어주세요.
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={handleJsonUploadButtonClick}
+                  disabled={isJsonPredicting}
+                >
+                  {isJsonPredicting ? 'JSON 업로드 중...' : 'JSON 업로드'}
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => handleJsonDownload('json')}
+                  disabled={!jsonDownloadInfo?.json}
+                >
+                  JSON 다운로드
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => handleJsonDownload('jsonl')}
+                  disabled={!jsonDownloadInfo?.jsonl}
+                >
+                  JSONL 다운로드
+                </button>
+              </div>
+            </div>
+            {jsonPredictError && (
+              <div
+                style={{
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                }}
+              >
+                {jsonPredictError}
+              </div>
+            )}
+            {isJsonPredicting && (
+              <div style={{ color: '#4b5563', fontSize: '14px' }}>
+                예측 중입니다. 잠시만 기다려주세요...
+              </div>
+            )}
+            {jsonPredictEntries.length === 0 && !isJsonPredicting ? (
+              <p style={{ margin: 0, color: '#9ca3af', fontSize: '14px' }}>
+                JSON 업로드 결과가 여기에 표시됩니다.
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: '16px',
+                }}
+              >
+                {jsonPredictEntries.map((entry, index) => (
+                  <div
+                    key={entry.id || `${entry.label}-${index}`}
+                    style={{
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      backgroundColor: '#ffffff',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '15px' }}>
+                        {entry.label || `결과 ${index + 1}`}
+                      </strong>
+                      <span style={{ color: '#6b7280', fontSize: '12px' }}>#{index + 1}</span>
+                    </div>
+                    {entry.imageBase64 && (
+                      <div style={{ marginTop: '4px' }}>
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>이미지 미리보기</span>
+                        <div
+                          style={{
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '4px',
+                            padding: '4px',
+                            marginTop: '4px',
+                            maxHeight: '180px',
+                            overflow: 'hidden',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <img
+                            src={`data:image/png;base64,${entry.imageBase64}`}
+                            alt={`${entry.label || 'result'} preview`}
+                            style={{ maxWidth: '100%', maxHeight: '160px', objectFit: 'contain' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {entry.imagePath && (
+                      <div style={{ fontSize: '13px', color: '#374151' }}>
+                        <strong>이미지 경로:</strong>{' '}
+                        {/^https?:\/\//i.test(entry.imagePath) ? (
+                          <a href={entry.imagePath} target="_blank" rel="noreferrer">
+                            이미지 보기
+                          </a>
+                        ) : (
+                          <span>
+                            {entry.imagePath} (로컬 경로, 직접 열어주세요)
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '6px',
+                        padding: '8px',
+                        backgroundColor: '#fdfdfd',
+                        overflowX: 'auto',
+                      }}
+                    >
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html:
+                            entry.predictHtml?.trim() ||
+                            '<p style="color:#9ca3af;">predictHtml 응답이 없습니다.</p>',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {jsonWorkspacePath && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  alignItems: 'center',
+                  fontSize: '13px',
+                }}
+              >
+                <span style={{ color: '#374151' }}>
+                  워크스페이스 경로: <code style={{ backgroundColor: '#fff', padding: '2px 4px' }}>{jsonWorkspacePath}</code>
+                </span>
+                <a
+                  href={`file://${encodeURI(jsonWorkspacePath)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#2563eb' }}
+                >
+                  워크스페이스 열기
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
