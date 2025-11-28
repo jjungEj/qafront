@@ -182,6 +182,53 @@ export const predictQaJsonFile = (file, { sendImageAsBase64 = false } = {}) => {
 };
 
 /**
+ * JSON 파일을 업로드하여 HTML 파일로 분할
+ *
+ * @param {File} file - predict 배열을 포함한 JSON 파일
+ */
+export const splitQaJsonFile = (file, config = {}) => {
+  if (!file) {
+    return Promise.reject(new Error('분할할 JSON 파일이 필요합니다.'));
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return api.post('/qa/files/json/split', formData, {
+    ...config,
+    headers: {
+      ...(config.headers || {}),
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
+/**
+ * HTML 파일들을 하나의 JSON으로 병합
+ *
+ * @param {Object} payload
+ * @param {string} payload.outputFileName - 결과 JSON 파일명
+ * @param {string[]} payload.htmlFileNames - 병합 대상 HTML 파일명 목록
+ * @param {boolean} payload.prettyPrint - pretty print 여부
+ */
+export const mergeQaHtmlFiles = ({
+  outputFileName,
+  htmlFileNames = [],
+  prettyPrint = true,
+} = {}) =>
+  api.post(
+    '/qa/files/json/merge',
+    {
+      outputFileName,
+      htmlFileNames,
+      prettyPrint,
+    },
+    {
+      responseType: 'blob',
+    }
+  );
+
+/**
  * HTML 파일 내용 조회
  *
  * @param {'after'|'before'|'dev'} folder

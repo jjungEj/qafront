@@ -9,7 +9,7 @@
 * 2025.11.17        정은주        - QA 파일 목록 조회 및 표시
 * 2025.11.24        개편          - 워크스페이스 기반 목록/페이징, HTML 편집/승격
 */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import html2canvas from 'html2canvas';
 import { 
   getQaWorkspace,
@@ -20,6 +20,8 @@ import {
   promoteAfterFile,
   startInferenceResultJob,
   predictQaJsonFile,
+  splitQaJsonFile,
+  mergeQaHtmlFiles,
 } from '../utils/api';
 import { formatDateTime, formatDateTimeWithoutSeconds, formatFileSize } from '../utils/format';
 import { NotificationContainer } from '../components/Notification';
@@ -330,6 +332,25 @@ const buildStandardizedHtmlDocument = (html = '', { title } = {}) => {
   return buildFullHtmlDocument(htmlWithStyles, { title });
 };
 
+const extractFileNameFromDisposition = (disposition = '') => {
+  if (!disposition || typeof disposition !== 'string') {
+    return null;
+  }
+  const utf8Match = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim().replace(/^"(.*)"$/, '$1'));
+    } catch (error) {
+      return utf8Match[1].trim().replace(/^"(.*)"$/, '$1');
+    }
+  }
+  const asciiMatch = disposition.match(/filename=(?:["']?)([^;"']+)/i);
+  if (asciiMatch && asciiMatch[1]) {
+    return asciiMatch[1].trim().replace(/^"(.*)"$/, '$1');
+  }
+  return null;
+};
+
 // 테이블 편집 유틸리티 함수들
 const buildTableCellMaps = (tableElement, { assignDataset = false, tableIndex = 0 } = {}) => {
   if (!tableElement) {
@@ -425,6 +446,22 @@ const QA = () => {
   const [jsonWorkspacePath, setJsonWorkspacePath] = useState('');
   const [jsonDownloadInfo, setJsonDownloadInfo] = useState({ json: null, jsonl: null });
   const [sendImageAsBase64, setSendImageAsBase64] = useState(false);
+  const [isJsonSplitting, setIsJsonSplitting] = useState(false);
+  const [jsonSplitProgress, setJsonSplitProgress] = useState(null);
+  const [jsonSplitError, setJsonSplitError] = useState(null);
+  const [selectedBeforeForMerge, setSelectedBeforeForMerge] = useState([]);
+  const [mergeOutputFileName, setMergeOutputFileName] = useState('predict-output.json');
+  const [mergePrettyPrint, setMergePrettyPrint] = useState(true);
+  const [isMergingJson, setIsMergingJson] = useState(false);
+  const [mergeErrorMessage, setMergeErrorMessage] = useState(null);
+  const [jsonMergeDownload, setJsonMergeDownload] = useState(null);
+  const mergeSelectionOrderMap = useMemo(() => {
+    const map = new Map();
+    selectedBeforeForMerge.forEach((fileName, index) => {
+      map.set(fileName, index + 1);
+    });
+    return map;
+  }, [selectedBeforeForMerge]);
   
   // 테이블 편집 관련 state
   const [isEditingTable, setIsEditingTable] = useState(false);
@@ -437,6 +474,7 @@ const QA = () => {
   const tableContainerRef = useRef(null);
   const sheetContentRef = useRef(null);
   const jsonUploadInputRef = useRef(null);
+  const jsonSplitInputRef = useRef(null);
 
   const getEditableTables = useCallback(() => {
     if (!tableContainerRef.current) {
@@ -579,6 +617,11 @@ const QA = () => {
         setSelectedAfterFiles((prev) =>
           prev.filter((fileName) =>
             normalized.after.files.some((file) => file.fileName === fileName)
+          )
+        );
+        setSelectedBeforeForMerge((prev) =>
+          prev.filter((fileName) =>
+            normalized.before.files.some((file) => file.fileName === fileName)
           )
         );
         return normalized;
@@ -746,6 +789,14 @@ const QA = () => {
     };
   }, [jsonDownloadInfo]);
 
+  useEffect(() => {
+    return () => {
+      if (jsonMergeDownload?.url) {
+        URL.revokeObjectURL(jsonMergeDownload.url);
+      }
+    };
+  }, [jsonMergeDownload]);
+
   const normalizeJsonPredictEntries = useCallback((payload) => {
     if (!payload) {
       return [];
@@ -781,6 +832,34 @@ const QA = () => {
       imagePath: value?.imagePath || value?.imageUrl || '',
       imageBase64: value?.imageBase64 || null,
     }));
+  }, []);
+
+  const parsePredictStatsFromJsonFile = useCallback(async (file) => {
+    if (!file || typeof file.text !== 'function') {
+      return { predictCount: null, nonEmptyHtmlCount: null };
+    }
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const predictArray = parsed?.predict;
+      if (Array.isArray(predictArray)) {
+        const nonEmptyHtmlCount = predictArray.filter((entry) => {
+          const htmlCandidate = entry?.html ?? entry?.predictHtml ?? entry?.predict;
+          if (typeof htmlCandidate === 'string') {
+            return htmlCandidate.trim().length > 0;
+          }
+          return !!htmlCandidate;
+        }).length;
+        return {
+          predictCount: predictArray.length,
+          nonEmptyHtmlCount,
+        };
+      }
+      return { predictCount: null, nonEmptyHtmlCount: null };
+    } catch (error) {
+      console.warn('JSON 분할 파일 파싱 실패:', error);
+      return { predictCount: null, nonEmptyHtmlCount: null };
+    }
   }, []);
 
   const handleBeforeUploadChange = async (event) => {
@@ -918,6 +997,199 @@ const QA = () => {
     },
     [jsonDownloadInfo, showNotification]
   );
+
+  const handleJsonSplitButtonClick = useCallback(() => {
+    if (jsonSplitInputRef.current && !isJsonSplitting) {
+      jsonSplitInputRef.current.click();
+    }
+  }, [isJsonSplitting]);
+
+  const handleJsonSplitUploadChange = useCallback(
+    async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      setJsonSplitError(null);
+      setIsJsonSplitting(true);
+      setJsonSplitProgress({
+        fileName: file.name,
+        total: null,
+        processed: 0,
+        status: 'preparing',
+        uploadPercent: 0,
+      });
+      showNotification(`"${file.name}" JSON 분할을 시작합니다.`, 'info', 2000);
+      try {
+        const stats = await parsePredictStatsFromJsonFile(file);
+        if (stats?.predictCount != null) {
+          setJsonSplitProgress((prev) =>
+            prev ? { ...prev, total: stats.predictCount } : prev
+          );
+        }
+        const response = await splitQaJsonFile(file, {
+          onUploadProgress: (progressEvent) => {
+            if (!progressEvent || typeof progressEvent.loaded !== 'number') {
+              return;
+            }
+            if (!progressEvent.total) {
+              return;
+            }
+            const percent = Math.min(
+              100,
+              Math.round((progressEvent.loaded / progressEvent.total) * 100)
+            );
+            setJsonSplitProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    uploadPercent: percent,
+                    status: 'uploading',
+                  }
+                : prev
+            );
+          },
+        });
+        const payload = response?.data?.data ?? response?.data ?? [];
+        const createdFiles = Array.isArray(payload) ? payload : [];
+        const processedCount = createdFiles.length;
+        setJsonSplitProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                processed: processedCount,
+                total: prev.total ?? processedCount,
+                status: 'completed',
+                uploadPercent: 100,
+              }
+            : prev
+        );
+        const createdFileNames = createdFiles
+          .map((item) => item?.fileName)
+          .filter(Boolean);
+        if (createdFileNames.length > 0) {
+          setPendingSelectBeforeFileName(createdFileNames[0]);
+        }
+        showNotification(
+          processedCount > 0
+            ? `JSON 분할 완료: ${processedCount}개 HTML 파일 생성`
+            : 'JSON 분할이 완료되었지만 생성된 파일이 없습니다.',
+          processedCount > 0 ? 'success' : 'warning',
+          5000
+        );
+        await fetchWorkspace({ beforePage: 0, folderKeys: ['before'] });
+      } catch (error) {
+        const status = error.response?.status;
+        const serverMessage = error.response?.data?.message;
+        const message =
+          serverMessage ||
+          (status === 400
+            ? 'JSON 구조에서 predict 배열을 찾을 수 없습니다.'
+            : error.message || 'JSON 분할에 실패했습니다.');
+        setJsonSplitError(message);
+        setJsonSplitProgress((prev) =>
+          prev ? { ...prev, status: 'error' } : prev
+        );
+        showNotification(message, 'error', 6000);
+      } finally {
+        setIsJsonSplitting(false);
+        if (event?.target) {
+          event.target.value = '';
+        }
+      }
+    },
+    [fetchWorkspace, parsePredictStatsFromJsonFile, showNotification]
+  );
+
+  const handleBeforeMergeSelectionChange = useCallback((fileName, checked) => {
+    setSelectedBeforeForMerge((prev) => {
+      if (checked) {
+        if (prev.includes(fileName)) {
+          return prev;
+        }
+        return [...prev, fileName];
+      }
+      return prev.filter((name) => name !== fileName);
+    });
+  }, []);
+
+  const handleClearMergeSelection = useCallback(() => {
+    setSelectedBeforeForMerge([]);
+  }, []);
+
+  const handleJsonMerge = useCallback(async () => {
+    if (isMergingJson) {
+      return;
+    }
+    if (selectedBeforeForMerge.length === 0) {
+      showNotification('병합할 HTML 파일을 선택해주세요.', 'warning');
+      return;
+    }
+    const trimmedOutput = (mergeOutputFileName || '').trim();
+    if (!trimmedOutput) {
+      setMergeErrorMessage('출력 파일명을 입력해주세요.');
+      return;
+    }
+    setIsMergingJson(true);
+    setMergeErrorMessage(null);
+    try {
+      const response = await mergeQaHtmlFiles({
+        outputFileName: trimmedOutput,
+        htmlFileNames: selectedBeforeForMerge,
+        prettyPrint: mergePrettyPrint,
+      });
+      const blob =
+        response?.data instanceof Blob
+          ? response.data
+          : new Blob([response?.data], {
+              type: response?.headers?.['content-type'] || 'application/json',
+            });
+      const inferredFileName =
+        extractFileNameFromDisposition(response?.headers?.['content-disposition']) ||
+        trimmedOutput ||
+        'predict-output.json';
+      const downloadUrl = URL.createObjectURL(blob);
+      setJsonMergeDownload((prev) => {
+        if (prev?.url) {
+          URL.revokeObjectURL(prev.url);
+        }
+        return { url: downloadUrl, fileName: inferredFileName };
+      });
+      if (typeof document !== 'undefined') {
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = inferredFileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      showNotification(
+        `"${inferredFileName}" JSON이 생성되어 After 폴더에도 저장되었습니다.`,
+        'success',
+        5000
+      );
+      await fetchWorkspace({ folderKeys: ['after'] });
+    } catch (error) {
+      const status = error.response?.status;
+      const serverMessage = error.response?.data?.message;
+      const message =
+        serverMessage ||
+        (status === 404
+          ? '선택한 HTML 파일을 찾을 수 없습니다. 목록을 새로고침해주세요.'
+          : error.message || 'JSON 병합에 실패했습니다.');
+      setMergeErrorMessage(message);
+      showNotification(message, 'error', 6000);
+    } finally {
+      setIsMergingJson(false);
+    }
+  }, [
+    fetchWorkspace,
+    isMergingJson,
+    mergeOutputFileName,
+    mergePrettyPrint,
+    selectedBeforeForMerge,
+    showNotification,
+  ]);
 
   const handleSelectBeforeFile = async (file) => {
     if (!file) {
@@ -1888,6 +2160,7 @@ const QA = () => {
     const folderLoading = !!loadingFolders[folderKey];
     const isAfter = folderKey === 'after';
     const isBefore = folderKey === 'before';
+    const columnCount = isAfter || isBefore ? 5 : 4;
     
     // 안전성 체크
     if (!folderData || !Array.isArray(folderData.files)) {
@@ -2022,6 +2295,7 @@ const QA = () => {
           <table className="data-table">
             <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#2c3e50' }}>
               <tr>
+                {isBefore && <th style={{ width: '48px' }}>선택</th>}
                 {isAfter && <th style={{ width: '48px' }}>☑️</th>}
                 <th style={{ width: isBefore || isAfter ? '200px' : 'auto' }}>파일명</th>
                 <th style={{ width: isBefore || isAfter ? '80px' : 'auto' }}>파일 크기</th>
@@ -2032,18 +2306,20 @@ const QA = () => {
             <tbody>
               {folderLoading ? (
                 <tr>
-                  <td colSpan={isAfter ? 5 : 4} className="empty-message">
+                  <td colSpan={columnCount} className="empty-message">
                     로딩 중...
                   </td>
                 </tr>
               ) : !folderData.files || folderData.files.length === 0 ? (
                 <tr>
-                  <td colSpan={isAfter ? 5 : 4} className="empty-message">
+                  <td colSpan={columnCount} className="empty-message">
                     파일이 없습니다.
                   </td>
                 </tr>
               ) : (
                 (folderData.files || []).map((file) => {
+                  const mergeOrder = mergeSelectionOrderMap.get(file.fileName);
+                  const isMergeSelected = mergeOrder !== undefined;
                   return (
                     <tr
                       key={`${folderKey}-${file.fileName}`}
@@ -2072,6 +2348,45 @@ const QA = () => {
                         }
                       }}
                     >
+                      {isBefore && (
+                        <td>
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontSize: '12px',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isMergeSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleBeforeMergeSelectionChange(file.fileName, e.target.checked);
+                              }}
+                            />
+                            {isMergeSelected && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  minWidth: '22px',
+                                  height: '22px',
+                                  borderRadius: '999px',
+                                  backgroundColor: '#e0f2fe',
+                                  color: '#0369a1',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                #{mergeOrder}
+                              </span>
+                            )}
+                          </label>
+                        </td>
+                      )}
                       {isAfter && (
                         <td>
                           <input
@@ -2135,6 +2450,13 @@ const QA = () => {
         style={{ display: 'none' }}
         accept=".json,.jsonl,application/json"
         onChange={handleJsonPredictUploadChange}
+      />
+      <input
+        type="file"
+        ref={jsonSplitInputRef}
+        style={{ display: 'none' }}
+        accept=".json,application/json"
+        onChange={handleJsonSplitUploadChange}
       />
       <h1 className="page-title">QA</h1>
       <div className="page-content">
@@ -2360,6 +2682,263 @@ const QA = () => {
             )}
           </div>
         </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '16px',
+          marginBottom: '32px',
+        }}
+      >
+        <div
+          style={{
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0 }}>JSON → HTML 분할</h3>
+            <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>
+              predict 배열이 포함된 JSON 파일을 업로드하면 항목별 HTML이 Before 폴더에 생성됩니다.
+            </p>
+          </div>
+          <button
+            className="btn-secondary"
+            onClick={handleJsonSplitButtonClick}
+            disabled={isJsonSplitting}
+          >
+            {isJsonSplitting ? '분할 중...' : 'JSON 파일 선택'}
+          </button>
+          {jsonSplitProgress && (
+            <div
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
+                padding: '12px',
+                backgroundColor: '#fff',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: '14px' }}>
+                {jsonSplitProgress.fileName}
+              </div>
+              <div style={{ fontSize: '13px', color: '#374151' }}>
+                생성된 파일 수 / 전체:{' '}
+                <strong>
+                  {jsonSplitProgress.processed ?? 0} /{' '}
+                  {jsonSplitProgress.total ?? '?'}
+                </strong>
+              </div>
+              {typeof jsonSplitProgress.uploadPercent === 'number' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#e5e7eb',
+                      borderRadius: '999px',
+                      height: '8px',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${jsonSplitProgress.uploadPercent}%`,
+                        backgroundColor: '#2563eb',
+                        height: '100%',
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#4b5563', minWidth: '42px' }}>
+                    {jsonSplitProgress.uploadPercent}%
+                  </span>
+                </div>
+              )}
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                {jsonSplitProgress.status === 'completed'
+                  ? '분할이 완료되었습니다.'
+                  : jsonSplitProgress.status === 'error'
+                  ? '분할 중 오류가 발생했습니다.'
+                  : 'predict 개수가 많을수록 시간이 오래 걸릴 수 있습니다.'}
+              </div>
+            </div>
+          )}
+          {jsonSplitError && (
+            <div
+              style={{
+                backgroundColor: '#fee2e2',
+                color: '#b91c1c',
+                padding: '10px',
+                borderRadius: '6px',
+                fontSize: '13px',
+              }}
+            >
+              {jsonSplitError}
+            </div>
+          )}
+          <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>
+            완료 후 Before 목록이 자동으로 갱신됩니다.
+          </p>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0 }}>HTML 선택 → JSON 병합</h3>
+            <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>
+              Before 폴더에서 체크한 순서대로 HTML을 병합해 JSON 파일을 생성합니다.
+            </p>
+          </div>
+          <label className="form-label" style={{ marginBottom: '0' }}>
+            출력 파일명
+          </label>
+          <input
+            type="text"
+            value={mergeOutputFileName}
+            onChange={(e) => setMergeOutputFileName(e.target.value)}
+            placeholder="predict-output.json"
+            style={{
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              padding: '8px 10px',
+            }}
+          />
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              color: '#374151',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={mergePrettyPrint}
+              onChange={(e) => setMergePrettyPrint(e.target.checked)}
+            />
+            Pretty Print (읽기 쉬운 형태로 저장)
+          </label>
+          <div
+            style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              backgroundColor: '#fff',
+              padding: '12px',
+              maxHeight: '180px',
+              overflowY: 'auto',
+            }}
+          >
+            {selectedBeforeForMerge.length === 0 ? (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
+                Before 폴더에서 체크박스로 HTML을 선택하면 순서가 여기에 표시됩니다.
+              </p>
+            ) : (
+              <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '13px' }}>
+                {selectedBeforeForMerge.map((fileName) => (
+                  <li key={fileName} style={{ marginBottom: '4px' }}>
+                    {fileName}
+                    <button
+                      type="button"
+                      style={{
+                        marginLeft: '8px',
+                        color: '#ef4444',
+                        fontSize: '12px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        padding: 0,
+                      }}
+                      onClick={() => handleBeforeMergeSelectionChange(fileName, false)}
+                    >
+                      제거
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              className="btn-primary"
+              onClick={handleJsonMerge}
+              disabled={isMergingJson || selectedBeforeForMerge.length === 0}
+            >
+              {isMergingJson ? '병합 중...' : 'JSON 병합 실행'}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={handleClearMergeSelection}
+              disabled={selectedBeforeForMerge.length === 0 || isMergingJson}
+            >
+              선택 초기화
+            </button>
+          </div>
+          {mergeErrorMessage && (
+            <div
+              style={{
+                backgroundColor: '#fee2e2',
+                color: '#b91c1c',
+                padding: '10px',
+                borderRadius: '6px',
+                fontSize: '13px',
+              }}
+            >
+              {mergeErrorMessage}
+            </div>
+          )}
+          {jsonMergeDownload?.url && (
+            <div
+              style={{
+                backgroundColor: '#ecfdf5',
+                color: '#047857',
+                padding: '10px',
+                borderRadius: '6px',
+                fontSize: '13px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>
+                {jsonMergeDownload.fileName} 다운로드 준비 완료
+              </span>
+              <a
+                className="btn-secondary"
+                href={jsonMergeDownload.url}
+                download={jsonMergeDownload.fileName}
+                style={{ padding: '4px 8px' }}
+              >
+                다시 다운로드
+              </a>
+            </div>
+          )}
+          {isMergingJson && (
+            <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>
+              After 폴더에 저장 중입니다...
+            </p>
+          )}
+        </div>
+      </div>
 
         {/* Before/After 폴더 나란히 배치 */}
         <div
