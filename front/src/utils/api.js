@@ -211,5 +211,45 @@ export const promoteAfterFile = (fileName) =>
 export const startInferenceResultJob = (requestPaths = []) =>
   api.post('/batch/start/inferenceResultJob', requestPaths);
 
+// ==================== 결과 목록/상세 (Result Viewer) ====================
+
+/**
+ * 결과 목록 조회
+ *
+ * @param {Object} params
+ * @param {number} params.page - 0부터 시작하는 페이지 번호
+ * @param {number} params.size - 페이지 크기
+ */
+export const getResultList = ({ page = 0, size = 10 } = {}) =>
+  api.get('/results', {
+    params: { page, size },
+  });
+
+/**
+ * 결과 상세 조회
+ *
+ * @param {string} fileName - 파일명 (URL 인코딩은 내부에서 수행)
+ */
+export const getResultDetail = (fileName) => {
+  if (!fileName) {
+    return Promise.reject(new Error('fileName이 필요합니다.'));
+  }
+  const safeFileName = encodeURIComponent(fileName);
+  return api.get(`/results/${safeFileName}`);
+};
+
+/**
+ * 결과 기반 QA 시작 요청
+ *
+ * @param {string} fileName - 결과 파일명
+ */
+export const requestResultQa = (fileName) => {
+  if (!fileName) {
+    return Promise.reject(new Error('fileName이 필요합니다.'));
+  }
+  const safeFileName = encodeURIComponent(fileName);
+  return api.post(`/results/${safeFileName}/qa`);
+};
+
 export default api;
 

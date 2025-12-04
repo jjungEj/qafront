@@ -13,13 +13,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import html2canvas from 'html2canvas';
 import { 
   getQaWorkspace,
-  uploadQaHtmlFile,
   getQaFileContent,
   saveBeforeHtmlFile,
   convertHtmlToJsonl,
   promoteAfterFile,
   startInferenceResultJob,
 } from '../utils/api';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { formatDateTime, formatDateTimeWithoutSeconds, formatFileSize } from '../utils/format';
 import { NotificationContainer } from '../components/Notification';
 import './Page.css';
@@ -401,7 +401,6 @@ const QA = () => {
   const [pages, setPages] = useState({ after: 0, before: 0, dev: 0 });
   const [notifications, setNotifications] = useState([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
   const [beforeSearchInput, setBeforeSearchInput] = useState('');
   const [activeBeforeKeyword, setActiveBeforeKeyword] = useState(null);
   const [selectedBeforeFile, setSelectedBeforeFile] = useState(null);
@@ -418,6 +417,8 @@ const QA = () => {
     before: false,
     dev: false,
   });
+  const location = useLocation();
+  const navigate = useNavigate();
   
   // 테이블 편집 관련 state
   const [isEditingTable, setIsEditingTable] = useState(false);
@@ -599,6 +600,21 @@ const QA = () => {
   }, [fetchWorkspace]);
 
   useEffect(() => {
+    const stateFileName = location.state?.qaTargetFileName;
+    const params = new URLSearchParams(location.search || '');
+    const queryFileName = params.get('fileName');
+    const targetFileName = stateFileName || queryFileName;
+
+    if (targetFileName) {
+      setPendingSelectBeforeFileName(targetFileName);
+    }
+
+    if (stateFileName) {
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    }
+  }, [location, navigate]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return undefined;
     }
@@ -700,57 +716,6 @@ const QA = () => {
   useEffect(() => {
     historyIndexRef.current = historyIndex;
   }, [historyIndex]);
-
-  const handleBeforeUploadChange = async (event) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) {
-      return;
-    }
-    const fileArray = Array.from(files);
-    const fileCount = fileArray.length;
-    showNotification(
-      fileCount > 1
-        ? `${fileCount}개 파일 업로드를 시작합니다.`
-        : `"${fileArray[0]?.name}" 업로드를 시작합니다.`,
-      'info',
-      2000
-    );
-    setIsUploading(true);
-    try {
-      const response = await uploadQaHtmlFile(fileArray);
-      
-      // 응답이 배열인지 객체인지 확인
-      const result = response.data;
-      const uploadedFiles = Array.isArray(result) ? result : [result];
-      const normalizedFiles = uploadedFiles.filter(Boolean);
-      
-      if (normalizedFiles.length === 1) {
-        const uploadedFileName = normalizedFiles[0]?.fileName || fileArray[0].name;
-        showNotification(`"${uploadedFileName}" 파일이 업로드되었습니다.`, 'success');
-        setPendingSelectBeforeFileName(uploadedFileName);
-      } else {
-        showNotification(`${normalizedFiles.length}개 파일이 업로드되었습니다.`, 'success');
-        // 다중 업로드 시 첫 번째 파일 선택
-        if (normalizedFiles.length > 0 && normalizedFiles[0]?.fileName) {
-          setPendingSelectBeforeFileName(normalizedFiles[0].fileName);
-        }
-      }
-      
-      await fetchWorkspace({ beforePage: 0, folderKeys: ['before'] });
-    } catch (error) {
-      const message = error.response?.data?.message || 'HTML 파일 업로드에 실패했습니다.';
-      showNotification(
-        fileCount > 1
-          ? `${fileCount}개 파일 업로드 실패: ${message}`
-          : message,
-        'error',
-        5000
-      );
-    } finally {
-      setIsUploading(false);
-      event.target.value = '';
-    }
-  };
 
   const handleSelectBeforeFile = async (file) => {
     if (!file) {
@@ -1957,23 +1922,10 @@ const QA = () => {
         {/* Dev 폴더 (전체 너비) */}
         {renderFolderSection('dev')}
 
-        {/* 파일 업로드 영역 */}
-        <div
-          style={{
-            marginBottom: '16px',
-          }}
-        >
-          <div>
-            <label className="form-label">HTML 파일 업로드 (자동으로 Before 폴더에 저장)</label>
-            <input
-              type="file"
-              accept=".html,.htm"
-              multiple
-              onChange={handleBeforeUploadChange}
-              disabled={isUploading}
-            />
-            {isUploading && <p style={{ color: '#6b7280', marginTop: '4px' }}>업로드 중...</p>}
-          </div>
+        <div className="info-banner" style={{ marginBottom: '16px' }}>
+          결과 상세 화면에서 &quot;QA 진행&quot; 버튼을 눌러 워크스페이스 파일을 자동으로 불러올 수 있습니다.
+          <br />
+          <code>back/workspace/before</code> 경로에 파일이 준비되어 있어야 목록이 채워집니다.
         </div>
 
         {/* Before/After 폴더 나란히 배치 */}

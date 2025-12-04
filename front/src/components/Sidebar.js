@@ -16,6 +16,16 @@ import './Sidebar.css';
 const Sidebar = () => {
   const location = useLocation();
 
+  const isActivePath = (path) => {
+    if (path === '/system-status') {
+      return location.pathname === '/' || location.pathname === path;
+    }
+    if (path !== '/' && location.pathname.startsWith(`${path}/`)) {
+      return true;
+    }
+    return location.pathname === path;
+  };
+
   const menuItems = [
     { path: '/system-status', label: '시스템 상태', icon: '🩺' },
     { path: '/local-files', label: '로컬 파일', icon: '📁' },
@@ -36,10 +46,7 @@ const Sidebar = () => {
               <Link
                 to={item.path}
                 className={`menu-link ${
-                  location.pathname === item.path ||
-                  (location.pathname === '/' && item.path === '/system-status')
-                    ? 'active'
-                    : ''
+                  isActivePath(item.path) ? 'active' : ''
                 }`}
               >
                 <span className="menu-icon">{item.icon}</span>
