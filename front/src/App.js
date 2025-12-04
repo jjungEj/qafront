@@ -13,6 +13,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import EmptyPage from './pages/EmptyPage';
+import ResultsList from './pages/ResultsList';
+import ResultDetail from './pages/ResultDetail';
 import QA from './pages/QA';
 import './App.css';
 
@@ -25,8 +27,8 @@ function App() {
           <Route path="/system-status" element={<EmptyPage title="시스템 상태" />} />
           <Route path="/local-files" element={<EmptyPage title="로컬 파일" />} />
           <Route path="/pipelines" element={<EmptyPage title="파이프라인" />} />
-          <Route path="/results" element={<EmptyPage title="결과" />} />
-          <Route path="/results/:id" element={<EmptyPage title="결과 조회" />} />
+          <Route path="/results" element={<ResultsList />} />
+          <Route path="/results/:fileName" element={<ResultDetail />} />
           <Route path="/qa" element={<QA />} />
         </Routes>
       </Layout>
