@@ -1947,7 +1947,34 @@ const QA = () => {
             <p style={{ color: '#6b7280' }}>수정할 Before 파일을 선택해주세요.</p>
           ) : (
             <div>
-              {/* 상단 버튼 영역 - 고정 */}
+              {/* 상단 파일 정보 영역 */}
+              <div style={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: '16px', 
+                alignItems: 'center',
+                marginBottom: '16px',
+                padding: '12px 16px',
+                backgroundColor: '#f3f4f6',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div>
+                  <strong>파일명:</strong> {selectedBeforeFile.fileName}
+                </div>
+                <div>
+                  <strong>크기:</strong>{' '}
+                  {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
+                </div>
+                <div>
+                  <strong>최종 수정:</strong>{' '}
+                  {selectedBeforeFile.lastModifiedAt
+                    ? formatDateTime(selectedBeforeFile.lastModifiedAt)
+                    : '-'}
+                </div>
+              </div>
+
+              {/* 버튼 영역 - 고정 */}
               <div style={{ 
                 display: 'flex', 
                 flexWrap: 'wrap', 
@@ -1991,14 +2018,14 @@ const QA = () => {
                     >
                       앞으로가기 ›
                     </button>
-                    {selectedCells.length >= 2 && (
-                      <button
-                        className="btn-primary"
-                        onClick={handleMergeCells}
-                      >
-                        셀 병합
-                      </button>
-                    )}
+                    <button
+                      className="btn-primary"
+                      onClick={handleMergeCells}
+                      disabled={selectedCells.length < 2}
+                      title={selectedCells.length < 2 ? '2개 이상의 셀을 선택해주세요' : '선택한 셀 병합'}
+                    >
+                      셀 병합
+                    </button>
                   </>
                 )}
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -2060,33 +2087,6 @@ const QA = () => {
                     HTML 내용이 없습니다.
                   </div>
                 )}
-              </div>
-
-              {/* 하단 파일 정보 영역 - 고정 */}
-              <div style={{ 
-                display: 'flex', 
-                flexWrap: 'wrap', 
-                gap: '16px', 
-                alignItems: 'center',
-                padding: '12px 16px',
-                backgroundColor: '#f3f4f6',
-                borderRadius: '8px',
-                border: '1px solid #e5e7eb',
-                marginTop: '16px'
-              }}>
-                <div>
-                  <strong>파일명:</strong> {selectedBeforeFile.fileName}
-                </div>
-                <div>
-                  <strong>크기:</strong>{' '}
-                  {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
-                </div>
-                <div>
-                  <strong>최종 수정:</strong>{' '}
-                  {selectedBeforeFile.lastModifiedAt
-                    ? formatDateTime(selectedBeforeFile.lastModifiedAt)
-                    : '-'}
-                </div>
               </div>
             </div>
           )}
