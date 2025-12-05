@@ -204,17 +204,25 @@ const ResultsList = () => {
     const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
 
     // 상태 표시용 라벨 및 클래스
-    // isCompleted가 true면 "완료", false 또는 undefined면 "진행중"
-    let statusLabel = '진행중';
-    let statusClass = 'result-list-item-status-in-progress';
+    // isCompleted가 true면 "업로드 완료"
+    // isCompleted가 false이고 folder가 "before"면 "수정 진행 중"
+    // isCompleted가 false이고 folder가 "after"면 "업로드 대기 중"
+    let statusLabel = '업로드 대기 중';
+    let statusClass = 'result-list-item-status-waiting';
     
     if (isCompleted) {
-      statusLabel = '완료';
+      statusLabel = '업로드 완료';
       statusClass = 'result-list-item-status-completed';
-    } else {
-      // isCompleted가 false이거나 없는 경우 "진행중" 표시
-      statusLabel = '진행중';
+    } else if (folder === 'before') {
+      statusLabel = '수정 진행 중';
       statusClass = 'result-list-item-status-in-progress';
+    } else if (folder === 'after') {
+      statusLabel = '업로드 대기 중';
+      statusClass = 'result-list-item-status-waiting';
+    } else {
+      // 기본값: folder 정보가 없거나 다른 경우
+      statusLabel = '업로드 대기 중';
+      statusClass = 'result-list-item-status-waiting';
     }
 
     return (
