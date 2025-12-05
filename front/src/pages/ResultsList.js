@@ -180,6 +180,8 @@ const ResultsList = () => {
     const folder = item?.folder || '-';
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
+    // isCompleted 필드로 완료 상태 확인 (백엔드에서 제공)
+    const isCompleted = item?.isCompleted === true;
     
     // 파일명에서 "before" 제거 (대소문자 구분 없이)
     fileName = fileName.replace(/\bbefore\b/gi, '').trim();
@@ -190,20 +192,17 @@ const ResultsList = () => {
     const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
 
     // 상태 표시용 라벨 및 클래스
-    // folder가 'before'이면 "대기중", 'after'이면 "완료", 그 외는 folder 값 그대로
-    let statusLabel = '대기중';
-    let statusClass = 'result-list-item-status-waiting';
+    // isCompleted가 true면 "완료", false 또는 undefined면 "진행중"
+    let statusLabel = '진행중';
+    let statusClass = 'result-list-item-status-in-progress';
     
-    if (folder === 'after') {
+    if (isCompleted) {
       statusLabel = '완료';
       statusClass = 'result-list-item-status-completed';
-    } else if (folder === 'dev') {
-      statusLabel = 'Dev';
-      statusClass = 'result-list-item-status-dev';
     } else {
-      // folder가 'before'이거나 다른 값인 경우 기본값인 "대기중" 사용
-      statusLabel = '대기중';
-      statusClass = 'result-list-item-status-waiting';
+      // isCompleted가 false이거나 없는 경우 "진행중" 표시
+      statusLabel = '진행중';
+      statusClass = 'result-list-item-status-in-progress';
     }
 
     return (

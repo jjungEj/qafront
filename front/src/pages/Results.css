@@ -95,9 +95,9 @@
   text-align: center;
 }
 
-.result-list-item-status-waiting {
-  background-color: #fef3c7;
-  color: #92400e;
+.result-list-item-status-in-progress {
+  background-color: #fed7aa;
+  color: #9a3412;
 }
 
 .result-list-item-status-completed {
