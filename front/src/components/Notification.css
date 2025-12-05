@@ -1,3 +1,14 @@
+/**
+* @ClassName	: Notification.css
+* @Description	: 알림 메시지 컴포넌트 스타일
+* @Author		: 정은주
+* @Date			: 2025.11.17
+* ===========================================================
+* DATE              AUTHOR             NOTE
+* -----------------------------------------------------------
+* 2025.11.17        정은주        - 알림 컨테이너 및 메시지 스타일 정의
+* 								- 타입별 알림 스타일 (info, success, error, warning)
+*/
 .notification-container {
   position: fixed;
   bottom: 20px;
