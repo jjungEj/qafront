@@ -74,6 +74,12 @@ const ResultsList = () => {
             ? data.total
             : contents.length;
 
+      // 디버깅: isCompleted 값 확인
+      console.log('Results API Response - contents:', contents);
+      contents.forEach((item, idx) => {
+        console.log(`Item ${idx}: fileName=${item?.fileName}, isCompleted=${item?.isCompleted}, folder=${item?.folder}`);
+      });
+
       setState({
         contents,
         navigationPages,
@@ -181,7 +187,13 @@ const ResultsList = () => {
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
     // isCompleted 필드로 완료 상태 확인 (백엔드에서 제공)
+    // dev 폴더에 해당 파일이 있으면 true, 없으면 false
     const isCompleted = item?.isCompleted === true;
+    
+    // 디버깅: 개별 아이템의 isCompleted 값 확인
+    if (item?.isCompleted === undefined) {
+      console.warn(`Item "${fileName}" has no isCompleted field`);
+    }
     
     // 파일명에서 "before" 제거 (대소문자 구분 없이)
     fileName = fileName.replace(/\bbefore\b/gi, '').trim();
