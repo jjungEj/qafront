@@ -4,10 +4,66 @@
 */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getResultDetail, requestResultQa } from '../utils/api';
+import { getResultDetail, requestResultQa, getQaFileContent } from '../utils/api';
 import { formatDateTimeWithoutSeconds, formatFileSize } from '../utils/format';
 import './Page.css';
 import './Results.css';
+import './QADetail.css';
+
+// HTML 디코딩 유틸리티 함수
+const decodeEscapedHtmlString = (html = '') => {
+  if (typeof html !== 'string') {
+    return '';
+  }
+
+  let decoded = html;
+
+  const tryJsonDecode = (value) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (error) {
+        return value;
+      }
+    }
+
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+      try {
+        const unwrapped = trimmed.slice(1, -1).replace(/"/g, '\\"');
+        return JSON.parse(`"${unwrapped}"`);
+      } catch (error) {
+        return value;
+      }
+    }
+
+    return value;
+  };
+
+  const unescapeOnce = (value) =>
+    value
+      .replace(/\\r\\n/gi, '\n')
+      .replace(/\\n/gi, '\n')
+      .replace(/\\t/gi, '\t')
+      .replace(/\\\//g, '/')
+      .replace(/\\(["'])/g, '$1')
+      .replace(/\\\\/g, '\\');
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const previous = decoded;
+    decoded = tryJsonDecode(decoded);
+    decoded = unescapeOnce(decoded);
+    if (decoded === previous || !decoded.includes('\\')) {
+      break;
+    }
+  }
+
+  return decoded;
+};
 
 const ResultDetail = () => {
   const { fileName: encodedFileName } = useParams();
@@ -17,6 +73,8 @@ const ResultDetail = () => {
   const [error, setError] = useState(null);
   const [qaLoading, setQaLoading] = useState(false);
   const [qaError, setQaError] = useState(null);
+  const [htmlContent, setHtmlContent] = useState('');
+  const [htmlLoading, setHtmlLoading] = useState(false);
   const navigate = useNavigate();
 
   const fetchDetail = useCallback(async () => {
@@ -34,12 +92,24 @@ const ResultDetail = () => {
         payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
           ? payload.data
           : payload;
-      setDetail({
+      const detailData = {
         fileName: data?.fileName || targetFileName,
         folder: data?.folder || '-',
         fileSize: data?.fileSize,
         lastModifiedAt: data?.lastModifiedAt,
-      });
+      };
+      setDetail(detailData);
+
+      // HTML 내용이 API 응답에 포함되어 있으면 사용
+      const responseHtml = data?.htmlContent || data?.html || data?.content;
+      if (responseHtml) {
+        const decodedHtml = decodeEscapedHtmlString(responseHtml);
+        setHtmlContent(decodedHtml);
+      } else {
+        // HTML 내용이 없으면 폴더 정보를 기반으로 가져오기 시도
+        // 결과 파일이 HTML이므로 before 폴더에서 찾아보기
+        fetchHtmlContent(detailData.folder, detailData.fileName);
+      }
     } catch (err) {
       const message = err?.response?.data?.message || '결과 상세 정보를 불러오지 못했습니다.';
       setError(message);
@@ -48,6 +118,29 @@ const ResultDetail = () => {
       setLoading(false);
     }
   }, [targetFileName]);
+
+  const fetchHtmlContent = useCallback(async (folder, fileName) => {
+    if (!fileName) return;
+    
+    setHtmlLoading(true);
+    try {
+      // 결과 파일이 HTML이므로 before 폴더에서 찾기 시도
+      // 또는 folder 정보를 사용하여 해당 폴더에서 찾기
+      const targetFolder = folder === 'before' ? 'before' : 'before'; // 기본적으로 before 폴더에서 찾기
+      const response = await getQaFileContent(targetFolder, fileName);
+      const rawHtmlContent = response.data?.htmlContent || response.data?.content || response.data?.html || response.data || '';
+      
+      // HTML 디코딩
+      const decodedHtml = decodeEscapedHtmlString(rawHtmlContent || '');
+      setHtmlContent(decodedHtml);
+    } catch (err) {
+      // HTML을 가져오지 못해도 에러로 표시하지 않음 (선택적)
+      console.log('HTML content not available:', err);
+      setHtmlContent('');
+    } finally {
+      setHtmlLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDetail();
@@ -149,11 +242,36 @@ const ResultDetail = () => {
                 </button>
               </div>
               {qaError && <div className="results-error">{qaError}</div>}
-              <div className="result-placeholder">
-                HTML Table 데이터가 아직 없음으로 표시됩니다. &quot;QA 진행&quot;을 누르면 해당 파일이
-                QA 워크스페이스(<code>back/workspace/before</code>)로 복사되고, QA 페이지에서 즉시 편집이
-                가능합니다.
-              </div>
+              {htmlLoading ? (
+                <div className="result-placeholder">HTML 내용을 불러오는 중...</div>
+              ) : htmlContent ? (
+                <div
+                  style={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    backgroundColor: '#fff',
+                    overflow: 'auto',
+                    maxHeight: '70vh',
+                    padding: '16px',
+                  }}
+                >
+                  <div
+                    className="sheet-html-content"
+                    dangerouslySetInnerHTML={{ __html: htmlContent }}
+                    style={{
+                      padding: '8px',
+                      minWidth: 'fit-content',
+                      display: 'inline-block',
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="result-placeholder">
+                  HTML Table 데이터가 아직 없음으로 표시됩니다. &quot;QA 진행&quot;을 누르면 해당 파일이
+                  QA 워크스페이스(<code>back/workspace/before</code>)로 복사되고, QA 페이지에서 즉시 편집이
+                  가능합니다.
+                </div>
+              )}
             </div>
 
             <div className="result-section">
