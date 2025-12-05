@@ -1947,44 +1947,24 @@ const QA = () => {
             <p style={{ color: '#6b7280' }}>수정할 Before 파일을 선택해주세요.</p>
           ) : (
             <div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
-                  <div>
-                    <strong>파일명:</strong> {selectedBeforeFile.fileName}
-                  </div>
-                  <div>
-                    <strong>크기:</strong>{' '}
-                    {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
-                  </div>
-                  <div>
-                    <strong>최종 수정:</strong>{' '}
-                    {selectedBeforeFile.lastModifiedAt
-                      ? formatDateTime(selectedBeforeFile.lastModifiedAt)
-                      : '-'}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+              {/* 상단 버튼 영역 - 고정 */}
+              <div style={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: '12px', 
+                alignItems: 'center',
+                marginBottom: '16px',
+                padding: '12px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb'
+              }}>
                 <button
                   className={isEditingTable ? 'btn-primary' : 'btn-secondary'}
                   onClick={toggleEditMode}
                   disabled={isFetchingBeforeFile}
                 >
                   {isEditingTable ? '편집 완료' : '테이블 편집'}
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleSaveBeforeFile}
-                  disabled={isSavingBeforeHtml || isFetchingBeforeFile}
-                >
-                  {isSavingBeforeHtml ? '저장 중...' : 'HTML 저장'}
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={handleConvertToJsonl}
-                  disabled={isConverting || isFetchingBeforeFile}
-                >
-                  {isConverting ? '변환 중...' : 'JSONL 변환 (After 폴더로 이동)'}
                 </button>
                 {isEditingTable && (
                   <>
@@ -2001,7 +1981,7 @@ const QA = () => {
                       disabled={historyIndex <= 0}
                       title="뒤로가기 (Ctrl+Z)"
                     >
-                      ↶ 뒤로가기
+                      ‹ 뒤로가기
                     </button>
                     <button
                       className="btn-secondary"
@@ -2009,21 +1989,37 @@ const QA = () => {
                       disabled={historyIndex >= history.length - 1}
                       title="앞으로가기 (Ctrl+Y)"
                     >
-                      ↷ 앞으로가기
+                      앞으로가기 ›
                     </button>
                     {selectedCells.length >= 2 && (
                       <button
                         className="btn-primary"
                         onClick={handleMergeCells}
                       >
-                        선택한 셀 병합
+                        셀 병합
                       </button>
                     )}
                   </>
                 )}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn-primary"
+                    onClick={handleSaveBeforeFile}
+                    disabled={isSavingBeforeHtml || isFetchingBeforeFile}
+                  >
+                    {isSavingBeforeHtml ? '저장 중...' : 'HTML 저장'}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={handleConvertToJsonl}
+                    disabled={isConverting || isFetchingBeforeFile}
+                  >
+                    {isConverting ? '변환 중...' : 'JSONL 변환 (After 폴더로 이동)'}
+                  </button>
                 </div>
               </div>
 
+              {/* HTML 테이블 영역 */}
               <div style={{ marginBottom: '24px' }}>
                 {isFetchingBeforeFile ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
@@ -2063,9 +2059,36 @@ const QA = () => {
                   <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
                     HTML 내용이 없습니다.
                   </div>
-                    )}
+                )}
+              </div>
+
+              {/* 하단 파일 정보 영역 - 고정 */}
+              <div style={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: '16px', 
+                alignItems: 'center',
+                padding: '12px 16px',
+                backgroundColor: '#f3f4f6',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                marginTop: '16px'
+              }}>
+                <div>
+                  <strong>파일명:</strong> {selectedBeforeFile.fileName}
+                </div>
+                <div>
+                  <strong>크기:</strong>{' '}
+                  {selectedBeforeFile.fileSize ? formatFileSize(selectedBeforeFile.fileSize) : '-'}
+                </div>
+                <div>
+                  <strong>최종 수정:</strong>{' '}
+                  {selectedBeforeFile.lastModifiedAt
+                    ? formatDateTime(selectedBeforeFile.lastModifiedAt)
+                    : '-'}
                 </div>
               </div>
+            </div>
           )}
         </section>
       </div>
