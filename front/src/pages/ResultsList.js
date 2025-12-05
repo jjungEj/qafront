@@ -231,11 +231,6 @@ const ResultsList = () => {
     <div className="page-container">
       <h1 className="page-title">결과 목록</h1>
       <div className="page-content">
-        <div className="info-banner">
-          ResultService에서 제공하는 <code>GET /api/results?page=0&amp;size=10</code> 응답의{' '}
-          <code>contents</code>와 <code>navigationPages</code>를 그대로 렌더링합니다. 파일이 없다면{' '}
-          &quot;데이터 없음&quot; 안내만 표시됩니다.
-        </div>
         <div className="results-toolbar">
           <span style={{ color: '#6b7280', fontSize: '14px' }}>
             총 {state.totalElements ?? 0}개 파일

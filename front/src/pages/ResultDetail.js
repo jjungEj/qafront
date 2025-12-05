@@ -90,11 +90,6 @@ const ResultDetail = () => {
     <div className="page-container">
       <h1 className="page-title">결과 상세</h1>
       <div className="page-content">
-        <div className="info-banner">
-          응답에서 제공하는 <code>fileName</code>, <code>folder</code>, <code>fileSize</code>,{' '}
-          <code>lastModifiedAt</code>만 상단에 노출하고, 문서 미리보기/HTML Table/추출 결과는 아직
-          준비되지 않았음을 안내합니다.
-        </div>
         <div className="result-detail-actions">
           <Link className="btn-secondary" to="/results">
             목록으로

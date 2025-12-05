@@ -1921,13 +1921,6 @@ const QA = () => {
 
         {/* Dev 폴더 (전체 너비) */}
         {renderFolderSection('dev')}
-
-        <div className="info-banner" style={{ marginBottom: '16px' }}>
-          결과 상세 화면에서 &quot;QA 진행&quot; 버튼을 눌러 워크스페이스 파일을 자동으로 불러올 수 있습니다.
-          <br />
-          <code>back/workspace/before</code> 경로에 파일이 준비되어 있어야 목록이 채워집니다.
-        </div>
-
         {/* Before/After 폴더 나란히 배치 */}
         <div
           style={{
