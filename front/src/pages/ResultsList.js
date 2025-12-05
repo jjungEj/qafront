@@ -184,20 +184,14 @@ const ResultsList = () => {
     const cardKey = `${folder}-${fileName}-${index}`;
 
     return (
-      <div className="result-card" key={cardKey}>
-        <div className="result-card-header">
-          <h3 className="result-card-title">{fileName}</h3>
-          <span className="result-card-badge">{folder}</span>
+      <div className="result-list-item" key={cardKey}>
+        <div className="result-list-item-name">
+          <span className="result-list-item-title">{fileName}</span>
+          <span className="result-list-item-badge">{folder}</span>
         </div>
-        <div className="result-card-meta">
-          <span>파일 크기</span>
-          <strong>{formatFileSize(fileSize)}</strong>
-        </div>
-        <div className="result-card-meta">
-          <span>최종 수정</span>
-          <strong>{formatDateTimeWithoutSeconds(lastModifiedAt)}</strong>
-        </div>
-        <div className="result-card-actions">
+        <div className="result-list-item-size">{formatFileSize(fileSize)}</div>
+        <div className="result-list-item-date">{formatDateTimeWithoutSeconds(lastModifiedAt)}</div>
+        <div className="result-list-item-actions">
           <Link className="btn-primary" to={detailPath}>
             상세 보기
           </Link>
@@ -235,7 +229,13 @@ const ResultsList = () => {
           <div className="results-empty">데이터 없음</div>
         ) : (
           <>
-            <div className="results-grid">
+            <div className="results-list">
+              <div className="results-list-header">
+                <div className="result-list-header-name">파일명</div>
+                <div className="result-list-header-size">파일 크기</div>
+                <div className="result-list-header-date">최종 수정</div>
+                <div className="result-list-header-actions">작업</div>
+              </div>
               {state.contents.map((item, index) => renderCard(item, index))}
             </div>
             {renderPagination()}
