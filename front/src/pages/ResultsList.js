@@ -176,18 +176,45 @@ const ResultsList = () => {
   };
 
   const renderCard = (item, index = 0) => {
-    const fileName = item?.fileName || '(알 수 없음)';
+    let fileName = item?.fileName || '(알 수 없음)';
     const folder = item?.folder || '-';
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
-    const detailPath = `/results/${encodeURIComponent(fileName)}`;
-    const cardKey = `${folder}-${fileName}-${index}`;
+    
+    // 파일명에서 "before" 제거 (대소문자 구분 없이)
+    fileName = fileName.replace(/\bbefore\b/gi, '').trim();
+    // 연속된 공백이나 특수문자 정리
+    fileName = fileName.replace(/\s+/g, ' ').replace(/^[\s\-_]+|[\s\-_]+$/g, '');
+    
+    const detailPath = `/results/${encodeURIComponent(item?.fileName || fileName)}`;
+    const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
+
+    // 상태 표시용 라벨 및 클래스
+    // folder가 'before'이면 "대기중", 'after'이면 "완료", 그 외는 folder 값 그대로
+    let statusLabel = '대기중';
+    let statusClass = 'result-list-item-status-waiting';
+    
+    if (folder === 'after') {
+      statusLabel = '완료';
+      statusClass = 'result-list-item-status-completed';
+    } else if (folder === 'dev') {
+      statusLabel = 'Dev';
+      statusClass = 'result-list-item-status-dev';
+    } else {
+      // folder가 'before'이거나 다른 값인 경우 기본값인 "대기중" 사용
+      statusLabel = '대기중';
+      statusClass = 'result-list-item-status-waiting';
+    }
 
     return (
       <div className="result-list-item" key={cardKey}>
         <div className="result-list-item-name">
           <span className="result-list-item-title">{fileName}</span>
-          <span className="result-list-item-badge">{folder}</span>
+        </div>
+        <div className="result-list-item-status">
+          <span className={`result-list-item-status-badge ${statusClass}`}>
+            {statusLabel}
+          </span>
         </div>
         <div className="result-list-item-size">{formatFileSize(fileSize)}</div>
         <div className="result-list-item-date">{formatDateTimeWithoutSeconds(lastModifiedAt)}</div>
@@ -232,6 +259,7 @@ const ResultsList = () => {
             <div className="results-list">
               <div className="results-list-header">
                 <div className="result-list-header-name">파일명</div>
+                <div className="result-list-header-status">상태</div>
                 <div className="result-list-header-size">파일 크기</div>
                 <div className="result-list-header-date">최종 수정</div>
                 <div className="result-list-header-actions">작업</div>

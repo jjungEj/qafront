@@ -29,6 +29,11 @@
   min-width: 200px;
 }
 
+.result-list-header-status {
+  flex: 0 0 100px;
+  text-align: center;
+}
+
 .result-list-header-size {
   flex: 1;
   min-width: 120px;
@@ -65,7 +70,6 @@
   min-width: 200px;
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
 .result-list-item-title {
@@ -75,15 +79,35 @@
   word-break: break-all;
 }
 
-.result-list-item-badge {
-  background-color: #dbeafe;
-  color: #1d4ed8;
+.result-list-item-status {
+  flex: 0 0 100px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.result-list-item-status-badge {
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  flex-shrink: 0;
+  text-align: center;
+}
+
+.result-list-item-status-waiting {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.result-list-item-status-completed {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.result-list-item-status-dev {
+  background-color: #dbeafe;
+  color: #1d4ed8;
 }
 
 .result-list-item-size {
@@ -270,6 +294,7 @@
   }
 
   .result-list-item-name,
+  .result-list-item-status,
   .result-list-item-size,
   .result-list-item-date,
   .result-list-item-actions {
