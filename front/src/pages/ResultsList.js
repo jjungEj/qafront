@@ -204,21 +204,26 @@ const ResultsList = () => {
     const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
 
     // 상태 표시용 라벨 및 클래스
-    // completed가 true면 "업로드 완료"
-    // completed가 false이고 folder가 "before"면 "수정 진행 중"
-    // completed가 false이고 folder가 "after"면 "업로드 대기 중"
+    // 백엔드에서 after 폴더 파일도 결과 목록에 포함됨
+    // 상태 결정 규칙:
+    // 1. completed === true → "업로드 완료"
+    // 2. completed === false && folder === 'after' → "업로드 대기 중"
+    // 3. completed === false && folder === 'before' → "수정 진행 중"
     let statusLabel = '업로드 대기 중';
     let statusClass = 'result-list-item-status-waiting';
     
     if (isCompleted) {
+      // completed === true → "업로드 완료"
       statusLabel = '업로드 완료';
       statusClass = 'result-list-item-status-completed';
-    } else if (folder === 'before') {
-      statusLabel = '수정 진행 중';
-      statusClass = 'result-list-item-status-in-progress';
     } else if (folder === 'after') {
+      // completed === false && folder === 'after' → "업로드 대기 중"
       statusLabel = '업로드 대기 중';
       statusClass = 'result-list-item-status-waiting';
+    } else if (folder === 'before') {
+      // completed === false && folder === 'before' → "수정 진행 중"
+      statusLabel = '수정 진행 중';
+      statusClass = 'result-list-item-status-in-progress';
     } else {
       // 기본값: folder 정보가 없거나 다른 경우
       statusLabel = '업로드 대기 중';
