@@ -74,10 +74,10 @@ const ResultsList = () => {
             ? data.total
             : contents.length;
 
-      // 디버깅: isCompleted 값 확인
+      // 디버깅: completed 값 확인
       console.log('Results API Response - contents:', contents);
       contents.forEach((item, idx) => {
-        console.log(`Item ${idx}: fileName=${item?.fileName}, isCompleted=${item?.isCompleted}, folder=${item?.folder}`);
+        console.log(`Item ${idx}: fileName=${item?.fileName}, completed=${item?.completed}, folder=${item?.folder}`);
       });
 
       setState({
@@ -186,13 +186,13 @@ const ResultsList = () => {
     const folder = item?.folder || '-';
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
-    // isCompleted 필드로 완료 상태 확인 (백엔드에서 제공)
+    // completed 필드로 완료 상태 확인 (백엔드에서 제공)
     // dev 폴더에 해당 파일이 있으면 true, 없으면 false
-    const isCompleted = item?.isCompleted === true;
+    const isCompleted = item?.completed === true;
     
-    // 디버깅: 개별 아이템의 isCompleted 값 확인
-    if (item?.isCompleted === undefined) {
-      console.warn(`Item "${fileName}" has no isCompleted field`);
+    // 디버깅: 개별 아이템의 completed 값 확인
+    if (item?.completed === undefined) {
+      console.warn(`Item "${fileName}" has no completed field`);
     }
     
     // 파일명에서 "before" 제거 (대소문자 구분 없이)
@@ -204,9 +204,9 @@ const ResultsList = () => {
     const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
 
     // 상태 표시용 라벨 및 클래스
-    // isCompleted가 true면 "업로드 완료"
-    // isCompleted가 false이고 folder가 "before"면 "수정 진행 중"
-    // isCompleted가 false이고 folder가 "after"면 "업로드 대기 중"
+    // completed가 true면 "업로드 완료"
+    // completed가 false이고 folder가 "before"면 "수정 진행 중"
+    // completed가 false이고 folder가 "after"면 "업로드 대기 중"
     let statusLabel = '업로드 대기 중';
     let statusClass = 'result-list-item-status-waiting';
     
