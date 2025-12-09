@@ -484,6 +484,102 @@ const QA = () => {
     return normalized;
   };
 
+  // 헤더에서 파일 정보를 읽어 로컬 상태를 즉시 업데이트하는 함수
+  const updateFileStatusFromHeader = useCallback((response, folderKey) => {
+    // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
+    // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
+    const fileInfoHeader = response.headers?.get?.('X-File-Info') 
+      || response.headers?.['x-file-info'] 
+      || response.headers?.['X-File-Info'];
+    
+    if (!fileInfoHeader) {
+      return false;
+    }
+
+    try {
+      // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
+      const fileInfo = JSON.parse(fileInfoHeader);
+      const { fileName, folder, statusText, completed } = fileInfo;
+      
+      if (!fileName || !folder) {
+        return false;
+      }
+
+      // 폴더 확인: folder가 일치하는지 확인
+      if (folder !== folderKey) {
+        return false;
+      }
+
+      // 로컬 상태 즉시 업데이트 (API 재호출 없이)
+      setWorkspace((prevWorkspace) => {
+        const updatedWorkspace = { ...prevWorkspace };
+        const folderData = updatedWorkspace[folderKey];
+        
+        if (!folderData || !Array.isArray(folderData.files)) {
+          return prevWorkspace;
+        }
+
+        // statusText 우선 사용, 없으면 completed로 판단 (하위 호환성)
+        let finalStatusText = statusText;
+        let finalCompleted = completed;
+        
+        if (!finalStatusText) {
+          // statusText가 없으면 completed로 판단하여 statusText 생성
+          if (finalCompleted === true) {
+            finalStatusText = folderKey === 'after' ? '업로드 완료' : folderKey === 'before' ? '수정 완료' : '업로드 완료';
+          } else {
+            finalStatusText = folderKey === 'after' ? '업로드 대기 중' : folderKey === 'before' ? '수정 진행 중' : '업로드 대기 중';
+          }
+        } else {
+          // statusText가 있으면 completed 값 추론
+          if (finalCompleted === undefined) {
+            finalCompleted = finalStatusText === '업로드 완료' || finalStatusText === '수정 완료';
+          }
+        }
+        
+        // 파일 찾기 및 상태 업데이트
+        const fileIndex = folderData.files.findIndex((file) => file.fileName === fileName);
+        
+        if (fileIndex >= 0) {
+          // 기존 파일 업데이트
+          const updatedFiles = [...folderData.files];
+          updatedFiles[fileIndex] = {
+            ...updatedFiles[fileIndex],
+            statusText: finalStatusText,
+            completed: finalCompleted,
+          };
+          
+          updatedWorkspace[folderKey] = {
+            ...folderData,
+            files: updatedFiles,
+          };
+        } else {
+          // 새 파일 추가 (파일이 목록에 없는 경우)
+          const newFile = {
+            fileName,
+            folder,
+            statusText: finalStatusText,
+            completed: finalCompleted,
+            lastModifiedAt: new Date().toISOString(),
+          };
+          
+          updatedWorkspace[folderKey] = {
+            ...folderData,
+            files: [newFile, ...folderData.files],
+            totalElements: folderData.totalElements + 1,
+          };
+        }
+        
+        return updatedWorkspace;
+      });
+
+      return true;
+    } catch (parseError) {
+      console.error('X-File-Info 헤더 파싱 실패:', parseError);
+      return false;
+    }
+  }, []);
+
   const fetchWorkspace = useCallback(
     async (override = {}) => {
       const {
@@ -830,32 +926,11 @@ const QA = () => {
     try {
       const response = await saveBeforeHtmlFile(selectedBeforeFile.fileName, normalizedDocumentHtml);
       
-      // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
-      // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
-      const fileInfoHeader = response.headers?.get?.('X-File-Info') 
-        || response.headers?.['x-file-info'] 
-        || response.headers?.['X-File-Info'];
+      // 헤더에서 파일 정보를 읽어 로컬 상태 즉시 업데이트 (API 재호출 없이)
+      const updated = updateFileStatusFromHeader(response, 'before');
       
-      if (fileInfoHeader) {
-        try {
-          // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
-          const fileInfo = JSON.parse(fileInfoHeader);
-          
-          // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
-          const completed = fileInfo.completed === true;
-          const folder = fileInfo.folder;
-          
-          // 폴더 확인: folder가 "before"인지 확인 후 before 폴더 목록만 업데이트
-          if (folder === 'before') {
-            await fetchWorkspace({ folderKeys: ['before'] });
-          }
-        } catch (parseError) {
-          console.error('X-File-Info 헤더 파싱 실패:', parseError);
-          // 파싱 실패 시 기본 동작 수행
-          await fetchWorkspace({ folderKeys: ['before'] });
-        }
-      } else {
-        // 헤더가 없는 경우 기본 동작 수행
+      if (!updated) {
+        // 헤더 업데이트 실패 시에만 API 재호출
         await fetchWorkspace({ folderKeys: ['before'] });
       }
       
@@ -1080,33 +1155,11 @@ const QA = () => {
 
       const response = await convertHtmlToJsonl(payload);
 
-      // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
-      // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
-      const fileInfoHeader = response.headers?.get?.('X-File-Info') 
-        || response.headers?.['x-file-info'] 
-        || response.headers?.['X-File-Info'];
+      // 헤더에서 파일 정보를 읽어 로컬 상태 즉시 업데이트 (API 재호출 없이)
+      const updated = updateFileStatusFromHeader(response, 'after');
       
-      if (fileInfoHeader) {
-        try {
-          // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
-          const fileInfo = JSON.parse(fileInfoHeader);
-          
-          // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
-          const completed = fileInfo.completed === true;
-          const folder = fileInfo.folder;
-          
-          // 폴더 확인: folder가 "after"인지 확인 후 after 폴더 목록만 업데이트
-          if (folder === 'after') {
-            // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
-            await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
-          }
-        } catch (parseError) {
-          console.error('X-File-Info 헤더 파싱 실패:', parseError);
-          // 파싱 실패 시 기본 동작 수행
-          await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
-        }
-      } else {
-        // 헤더가 없는 경우 기본 동작 수행
+      if (!updated) {
+        // 헤더 업데이트 실패 시에만 API 재호출
         await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
       }
 
@@ -1601,37 +1654,6 @@ const QA = () => {
     for (const fileName of selectedAfterFiles) {
       try {
         const response = await promoteAfterFile(fileName);
-        
-        // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
-        // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
-        const fileInfoHeader = response.headers?.get?.('X-File-Info') 
-          || response.headers?.['x-file-info'] 
-          || response.headers?.['X-File-Info'];
-        
-        let shouldUpdateDev = false;
-        if (fileInfoHeader) {
-          try {
-            // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
-            const fileInfo = JSON.parse(fileInfoHeader);
-            
-            // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
-            const completed = fileInfo.completed === true;
-            const folder = fileInfo.folder;
-            
-            // 폴더 확인: folder가 "dev"인지 확인 후 dev 폴더 목록만 업데이트
-            if (folder === 'dev') {
-              shouldUpdateDev = true;
-            }
-          } catch (parseError) {
-            console.error('X-File-Info 헤더 파싱 실패:', parseError);
-            // 파싱 실패 시 기본 동작 수행
-            shouldUpdateDev = true;
-          }
-        } else {
-          // 헤더가 없는 경우 기본 동작 수행
-          shouldUpdateDev = true;
-        }
-        
         const responseData = response.data?.data ?? response.data;
         const pathPayload = Array.isArray(responseData) ? responseData : [];
 
@@ -1640,18 +1662,10 @@ const QA = () => {
             `"${fileName}" 파일 이동 응답이 비어 있어 배치 작업을 실행할 수 없습니다.`,
             'warning'
           );
-          if (shouldUpdateDev) {
-            await fetchWorkspace({ folderKeys: ['dev'] });
-          }
           continue;
         }
 
         showNotification(`"${fileName}" 파일이 Dev 폴더로 이동했습니다. 배치를 시작합니다.`, 'success');
-        
-        // dev 폴더 업데이트
-        if (shouldUpdateDev) {
-          await fetchWorkspace({ folderKeys: ['dev'] });
-        }
 
         try {
           const batchResponse = await startInferenceResultJob(pathPayload);
@@ -1672,8 +1686,7 @@ const QA = () => {
       }
     }
     setSelectedAfterFiles([]);
-    // after 폴더도 업데이트 (파일이 after에서 dev로 이동했으므로)
-    await fetchWorkspace({ folderKeys: ['after'] });
+    await fetchWorkspace({ folderKeys: ['after', 'dev'] });
     setIsPromoting(false);
   };
 

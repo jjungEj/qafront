@@ -186,13 +186,40 @@ const ResultsList = () => {
     const folder = item?.folder || '-';
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
-    // completed 필드로 완료 상태 확인 (백엔드에서 제공)
-    // dev 폴더에 해당 파일이 있으면 true, 없으면 false
-    const isCompleted = item?.completed === true;
     
-    // 디버깅: 개별 아이템의 completed 값 확인
-    if (item?.completed === undefined) {
-      console.warn(`Item "${fileName}" has no completed field`);
+    // statusText 필드를 우선 사용, 없으면 completed로 판단 (하위 호환성)
+    let statusLabel = item?.statusText;
+    let statusClass = 'result-list-item-status-waiting';
+    
+    if (!statusLabel) {
+      // statusText가 없으면 completed로 판단
+      const isCompleted = item?.completed === true;
+      
+      // 폴더별 기본 상태 라벨
+      if (isCompleted) {
+        statusLabel = folder === 'before' ? '수정 완료' : '업로드 완료';
+        statusClass = 'result-list-item-status-completed';
+      } else {
+        if (folder === 'before') {
+          statusLabel = '수정 진행 중';
+          statusClass = 'result-list-item-status-in-progress';
+        } else if (folder === 'after') {
+          statusLabel = '업로드 대기 중';
+          statusClass = 'result-list-item-status-waiting';
+        } else {
+          statusLabel = '업로드 대기 중';
+          statusClass = 'result-list-item-status-waiting';
+        }
+      }
+    } else {
+      // statusText가 있으면 해당 값 사용하고 클래스 결정
+      if (statusLabel === '업로드 완료' || statusLabel === '수정 완료') {
+        statusClass = 'result-list-item-status-completed';
+      } else if (statusLabel === '수정 진행 중') {
+        statusClass = 'result-list-item-status-in-progress';
+      } else {
+        statusClass = 'result-list-item-status-waiting';
+      }
     }
     
     // 파일명에서 "before" 제거 (대소문자 구분 없이)
@@ -202,28 +229,6 @@ const ResultsList = () => {
     
     const detailPath = `/results/${encodeURIComponent(item?.fileName || fileName)}`;
     const cardKey = `${folder}-${item?.fileName || fileName}-${index}`;
-
-    // 상태 표시용 라벨 및 클래스
-    // completed가 true면 "업로드 완료"
-    // completed가 false이고 folder가 "before"면 "수정 진행 중"
-    // completed가 false이고 folder가 "after"면 "업로드 대기 중"
-    let statusLabel = '업로드 대기 중';
-    let statusClass = 'result-list-item-status-waiting';
-    
-    if (isCompleted) {
-      statusLabel = '업로드 완료';
-      statusClass = 'result-list-item-status-completed';
-    } else if (folder === 'before') {
-      statusLabel = '수정 진행 중';
-      statusClass = 'result-list-item-status-in-progress';
-    } else if (folder === 'after') {
-      statusLabel = '업로드 대기 중';
-      statusClass = 'result-list-item-status-waiting';
-    } else {
-      // 기본값: folder 정보가 없거나 다른 경우
-      statusLabel = '업로드 대기 중';
-      statusClass = 'result-list-item-status-waiting';
-    }
 
     return (
       <div className="result-list-item" key={cardKey}>
