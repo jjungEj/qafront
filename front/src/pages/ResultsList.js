@@ -187,25 +187,56 @@ const ResultsList = () => {
     const fileSize = item?.fileSize;
     const lastModifiedAt = item?.lastModifiedAt;
     
-    // statusText 필드를 우선 사용, 없으면 completed로 판단 (하위 호환성)
+    // statusText 필드를 우선 사용, 없으면 completed와 folder로 판단 (하위 호환성)
+    // 
+    // "수정 완료" 판단 기준:
+    // 1. statusText가 "수정 완료"로 명시적으로 설정된 경우
+    // 2. statusText가 없고 folder === 'before' && completed === true인 경우
+    //    (백엔드에서 completed는 보통 dev 폴더에 해당 파일이 존재하면 true)
+    // 
+    // "수정 진행 중" 판단 기준:
+    // 1. statusText가 "수정 진행 중"으로 명시적으로 설정된 경우
+    // 2. statusText가 없고 folder === 'before' && completed === false인 경우
+    //    (before 폴더에 파일이 있지만 아직 dev 폴더로 이동하지 않은 상태)
     let statusLabel = item?.statusText;
     let statusClass = 'result-list-item-status-waiting';
     
     if (!statusLabel) {
-      // statusText가 없으면 completed로 판단
+      // statusText가 없으면 completed와 folder로 판단
       const isCompleted = item?.completed === true;
       
       // 폴더별 기본 상태 라벨
-      if (isCompleted) {
-        statusLabel = folder === 'before' ? '수정 완료' : '업로드 완료';
+      if (folder === 'dev') {
+        // dev 폴더는 항상 "업로드 완료" (dev 폴더에 있으면 완료 상태)
+        statusLabel = '업로드 완료';
         statusClass = 'result-list-item-status-completed';
-      } else {
-        if (folder === 'before') {
+      } else if (folder === 'before') {
+        // before 폴더: "수정 진행 중" 또는 "수정 완료"
+        // completed === true: dev 폴더에도 해당 파일이 존재 (수정 완료)
+        // completed === false: before 폴더에만 존재 (수정 진행 중)
+        if (isCompleted) {
+          statusLabel = '수정 완료';
+          statusClass = 'result-list-item-status-completed';
+        } else {
           statusLabel = '수정 진행 중';
           statusClass = 'result-list-item-status-in-progress';
-        } else if (folder === 'after') {
+        }
+      } else if (folder === 'after') {
+        // after 폴더: "업로드 대기 중" 또는 "업로드 완료"
+        // completed === true: dev 폴더에도 해당 파일이 존재 (업로드 완료)
+        // completed === false: after 폴더에만 존재 (업로드 대기 중)
+        if (isCompleted) {
+          statusLabel = '업로드 완료';
+          statusClass = 'result-list-item-status-completed';
+        } else {
           statusLabel = '업로드 대기 중';
           statusClass = 'result-list-item-status-waiting';
+        }
+      } else {
+        // 폴더 정보가 없거나 다른 경우
+        if (isCompleted) {
+          statusLabel = '업로드 완료';
+          statusClass = 'result-list-item-status-completed';
         } else {
           statusLabel = '업로드 대기 중';
           statusClass = 'result-list-item-status-waiting';
@@ -213,14 +244,22 @@ const ResultsList = () => {
       }
     } else {
       // statusText가 있으면 해당 값 사용하고 클래스 결정
-      if (statusLabel === '업로드 완료' || statusLabel === '수정 완료') {
+      // 단, dev 폴더는 statusText가 있어도 "업로드 완료"로 강제 표시 (dev 폴더는 항상 완료 상태)
+      if (folder === 'dev' && statusLabel !== '업로드 완료') {
+        statusLabel = '업로드 완료';
         statusClass = 'result-list-item-status-completed';
-      } else if (statusLabel === '수정 진행 중') {
-        statusClass = 'result-list-item-status-in-progress';
       } else {
-        statusClass = 'result-list-item-status-waiting';
+        // statusText에 따라 클래스 결정
+        if (statusLabel === '업로드 완료' || statusLabel === '수정 완료') {
+          statusClass = 'result-list-item-status-completed';
+        } else if (statusLabel === '수정 진행 중') {
+          statusClass = 'result-list-item-status-in-progress';
+        } else {
+          statusClass = 'result-list-item-status-waiting';
+        }
       }
     }
+    
     
     // 파일명에서 "before" 제거 (대소문자 구분 없이)
     fileName = fileName.replace(/\bbefore\b/gi, '').trim();
