@@ -828,9 +828,38 @@ const QA = () => {
     const normalizedDocumentHtml = normalizeHtmlForTransport(documentHtml);
     setIsSavingBeforeHtml(true);
     try {
-      await saveBeforeHtmlFile(selectedBeforeFile.fileName, normalizedDocumentHtml);
+      const response = await saveBeforeHtmlFile(selectedBeforeFile.fileName, normalizedDocumentHtml);
+      
+      // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
+      // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
+      const fileInfoHeader = response.headers?.get?.('X-File-Info') 
+        || response.headers?.['x-file-info'] 
+        || response.headers?.['X-File-Info'];
+      
+      if (fileInfoHeader) {
+        try {
+          // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
+          const fileInfo = JSON.parse(fileInfoHeader);
+          
+          // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
+          const completed = fileInfo.completed === true;
+          const folder = fileInfo.folder;
+          
+          // 폴더 확인: folder가 "before"인지 확인 후 before 폴더 목록만 업데이트
+          if (folder === 'before') {
+            await fetchWorkspace({ folderKeys: ['before'] });
+          }
+        } catch (parseError) {
+          console.error('X-File-Info 헤더 파싱 실패:', parseError);
+          // 파싱 실패 시 기본 동작 수행
+          await fetchWorkspace({ folderKeys: ['before'] });
+        }
+      } else {
+        // 헤더가 없는 경우 기본 동작 수행
+        await fetchWorkspace({ folderKeys: ['before'] });
+      }
+      
       showNotification('HTML 내용이 저장되었습니다.', 'success');
-      await fetchWorkspace({ folderKeys: ['before'] });
       setBeforeHtml(normalizedDocumentHtml);
       if (normalizedDocumentHtml !== latestHtml) {
         setEditedHtml(normalizedDocumentHtml);
@@ -1049,13 +1078,40 @@ const QA = () => {
         sheets: validSheets,
       };
 
-      await convertHtmlToJsonl(payload);
+      const response = await convertHtmlToJsonl(payload);
+
+      // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
+      // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
+      const fileInfoHeader = response.headers?.get?.('X-File-Info') 
+        || response.headers?.['x-file-info'] 
+        || response.headers?.['X-File-Info'];
+      
+      if (fileInfoHeader) {
+        try {
+          // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
+          const fileInfo = JSON.parse(fileInfoHeader);
+          
+          // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
+          const completed = fileInfo.completed === true;
+          const folder = fileInfo.folder;
+          
+          // 폴더 확인: folder가 "after"인지 확인 후 after 폴더 목록만 업데이트
+          if (folder === 'after') {
+            // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
+            await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
+          }
+        } catch (parseError) {
+          console.error('X-File-Info 헤더 파싱 실패:', parseError);
+          // 파싱 실패 시 기본 동작 수행
+          await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
+        }
+      } else {
+        // 헤더가 없는 경우 기본 동작 수행
+        await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
+      }
 
       const jsonlFileName = getJsonlTitle(selectedBeforeFile.fileName);
       showNotification(`JSONL 파일이 생성되어 After 폴더에 저장되었습니다: ${jsonlFileName} (${validSheets.length}개 시트)`, 'success');
-      
-      // after 폴더를 첫 페이지로 새로고침하여 새 파일 확인
-      await fetchWorkspace({ afterPage: 0, folderKeys: ['after'] });
     } catch (error) {
       const message = error.response?.data?.message || 'JSONL 변환에 실패했습니다.';
       showNotification(message, 'error');
@@ -1545,6 +1601,37 @@ const QA = () => {
     for (const fileName of selectedAfterFiles) {
       try {
         const response = await promoteAfterFile(fileName);
+        
+        // 헤더 읽기: response.headers.get('X-File-Info')로 헤더 값 가져오기
+        // Axios는 헤더를 소문자로 정규화하므로 여러 방법 시도
+        const fileInfoHeader = response.headers?.get?.('X-File-Info') 
+          || response.headers?.['x-file-info'] 
+          || response.headers?.['X-File-Info'];
+        
+        let shouldUpdateDev = false;
+        if (fileInfoHeader) {
+          try {
+            // JSON 파싱: 헤더 값을 JSON.parse()로 파싱
+            const fileInfo = JSON.parse(fileInfoHeader);
+            
+            // 상태 업데이트: completed 값으로 UI 상태 즉시 반영
+            const completed = fileInfo.completed === true;
+            const folder = fileInfo.folder;
+            
+            // 폴더 확인: folder가 "dev"인지 확인 후 dev 폴더 목록만 업데이트
+            if (folder === 'dev') {
+              shouldUpdateDev = true;
+            }
+          } catch (parseError) {
+            console.error('X-File-Info 헤더 파싱 실패:', parseError);
+            // 파싱 실패 시 기본 동작 수행
+            shouldUpdateDev = true;
+          }
+        } else {
+          // 헤더가 없는 경우 기본 동작 수행
+          shouldUpdateDev = true;
+        }
+        
         const responseData = response.data?.data ?? response.data;
         const pathPayload = Array.isArray(responseData) ? responseData : [];
 
@@ -1553,10 +1640,18 @@ const QA = () => {
             `"${fileName}" 파일 이동 응답이 비어 있어 배치 작업을 실행할 수 없습니다.`,
             'warning'
           );
+          if (shouldUpdateDev) {
+            await fetchWorkspace({ folderKeys: ['dev'] });
+          }
           continue;
         }
 
         showNotification(`"${fileName}" 파일이 Dev 폴더로 이동했습니다. 배치를 시작합니다.`, 'success');
+        
+        // dev 폴더 업데이트
+        if (shouldUpdateDev) {
+          await fetchWorkspace({ folderKeys: ['dev'] });
+        }
 
         try {
           const batchResponse = await startInferenceResultJob(pathPayload);
@@ -1577,7 +1672,8 @@ const QA = () => {
       }
     }
     setSelectedAfterFiles([]);
-    await fetchWorkspace({ folderKeys: ['after', 'dev'] });
+    // after 폴더도 업데이트 (파일이 after에서 dev로 이동했으므로)
+    await fetchWorkspace({ folderKeys: ['after'] });
     setIsPromoting(false);
   };
 
